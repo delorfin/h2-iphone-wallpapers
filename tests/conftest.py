@@ -34,10 +34,10 @@ def gray_frame(path: Path, index: int) -> tuple[int, int, bytes]:
 
 
 def write_frames(view: Path, source: str) -> Path:
-    """Thirty frames at 420x700, shaped like one renderer view at scale 3 with the pan margin."""
+    """Eight game poses at 420x700, shaped like one renderer view at scale 3 with the pan margin."""
     view.mkdir()
     subprocess.run(
-        ["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", source, "-frames:v", "30",
+        ["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", source, "-frames:v", "8",
          "-start_number", "0", str(view / "f%02d.bmp")],
         check=True,
     )
@@ -46,10 +46,10 @@ def write_frames(view: Path, source: str) -> Path:
 
 @pytest.fixture
 def frames_dir(tmp_path: Path) -> Path:
-    return write_frames(tmp_path / "000", "testsrc2=s=420x700:r=30")
+    return write_frames(tmp_path / "000", "testsrc2=s=420x700:r=8")
 
 
 @pytest.fixture
 def still_frames_dir(tmp_path: Path) -> Path:
     """A view whose content never changes, so any movement in the clip is the pan."""
-    return write_frames(tmp_path / "still", "testsrc2=s=420x700:r=30,loop=loop=-1:size=1")
+    return write_frames(tmp_path / "still", "testsrc2=s=420x700:r=8,loop=loop=-1:size=1")

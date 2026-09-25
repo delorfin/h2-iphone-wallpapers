@@ -3,6 +3,11 @@ name = "h2live"
 version = "0.1.0"
 description = "Turns h2lwp map renders into iPhone Live Photo wallpapers"
 requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.3",
+    "pillow>=12.3.0",
+    "scipy>=1.18.1",
+]
 
 [project.scripts]
 h2live = "h2live.batch:main"

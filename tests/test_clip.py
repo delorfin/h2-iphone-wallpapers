@@ -1,7 +1,9 @@
 import pytest
 
 from conftest import gray_frame, mean_luma, probe
-from h2live.clip import DIRECTIONS, make_clip, view_size
+import numpy as np
+
+from h2live.clip import DIRECTIONS, POSES, make_clip, plan_frames, pose_schedule, view_size
 
 
 def test_view_size_leaves_one_map_pixel_of_pan_per_video_frame():
@@ -42,8 +44,8 @@ def test_brightness_dims_the_picture(frames_dir, tmp_path):
 
 
 def test_rejects_wrong_frame_count(frames_dir, tmp_path):
-    (frames_dir / "f29.bmp").unlink()
-    with pytest.raises(ValueError, match="expected 30 frames"):
+    (frames_dir / "f07.bmp").unlink()
+    with pytest.raises(ValueError, match="expected 8 frames"):
         make_clip(frames_dir, tmp_path / "clip.mov", brightness=70, scale=3, direction=(1, 0))
 
 
@@ -61,3 +63,50 @@ def test_rejects_brightness_out_of_range(frames_dir, tmp_path, brightness):
 def test_directions_are_horizontal_or_diagonal():
     assert len(DIRECTIONS) == 6
     assert all(dx != 0 for dx, _ in DIRECTIONS)
+
+
+def changes(schedule):
+    return [f for f in range(1, len(schedule)) if schedule[f] != schedule[f - 1]]
+
+
+def test_poses_change_evenly_on_screen_given_the_measured_lock_screen_curve():
+    # Measured: frame 21 shows at 0.27 s, 24 at 0.57, 26 at 0.79, 28 at 1.12, 29 at 1.36, 30 at 1.66.
+    assert changes(pose_schedule(phase=0.0, gated=False)) == [21, 24, 26, 28, 29, 30]
+
+
+def test_big_jump_objects_change_only_in_the_short_early_gaps():
+    assert changes(pose_schedule(phase=0.0, gated=True)) == [21, 24]
+
+
+def test_schedule_never_runs_past_the_rendered_poses():
+    assert max(pose_schedule(phase=0.249, gated=False)) == POSES - 1
+
+
+def toggling_squares(count, size=6, gap=10):
+    """Poses where `count` separate squares alternate between black and white every game step."""
+    width = count * (size + gap)
+    poses = np.zeros((POSES, 20, width, 3), np.uint8)
+    for p in range(POSES):
+        for i in range(count):
+            poses[p, 5:5 + size, i * (size + gap):i * (size + gap) + size] = 255 * (p % 2)
+    return poses
+
+
+def test_each_object_animates_on_its_own_phase():
+    frames = plan_frames(toggling_squares(12), seed=1)
+    visible = [f for f in range(18, 31) if (frames[f] != frames[f - 1]).any()]
+    # In sync, changes would land on only 6 frames; independent phases spread them out.
+    assert len(visible) >= 10
+
+
+def test_phases_are_reproducible_per_seed():
+    poses = toggling_squares(5)
+    assert (plan_frames(poses, seed=3) == plan_frames(poses, seed=3)).all()
+
+
+def test_objects_with_big_jumps_hold_after_the_early_gaps():
+    poses = np.zeros((POSES, 60, 60, 3), np.uint8)
+    for p in range(POSES):
+        poses[p, 5:55, 5:55] = 255 * (p % 2)  # 2500 px change every step, like windmill blades
+    frames = plan_frames(poses, seed=0)
+    assert all(f <= 25 for f in range(18, 31) if (frames[f] != frames[f - 1]).any())
