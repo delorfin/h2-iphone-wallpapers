@@ -1,0 +1,1 @@
+`base.HEIC` and `base.mov` come from goLive (https://github.com/code-path/goLive), Apache License 2.0 (see LICENSE). They are a camera Live Photo whose metadata makes iOS accept generated clips as lock screen wallpapers.
