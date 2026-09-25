@@ -44,6 +44,13 @@ def write_frames(view: Path, source: str) -> Path:
     return view
 
 
+@pytest.fixture(autouse=True)
+def scout_cache(tmp_path, monkeypatch) -> Path:
+    """Keeps tests out of the real scout cache in ~/Library/Caches."""
+    monkeypatch.setenv("H2LIVE_SCOUT_CACHE", str(tmp_path / "scout-cache"))
+    return tmp_path / "scout-cache"
+
+
 @pytest.fixture
 def frames_dir(tmp_path: Path) -> Path:
     return write_frames(tmp_path / "000", "testsrc2=s=420x700:r=30")

@@ -1,17 +1,63 @@
-"""Stands in for `fheroes2 --render-wallpapers` so batch tests don't need game data."""
+"""Stands in for fheroes2's --scout-maps and --render-views so batch tests don't need game data.
 
+FAKE_MAPS picks the scouted maps: "good" (default) gives three small maps with one good view each,
+"empty" gives a map with nothing on it. Views of "dull.mp2" render as one flat colour, which the
+rendered-still check rejects.
+"""
+
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
-_, flag, out, count, width, height, frames = sys.argv
-assert flag == "--render-wallpapers"
-for i in range(int(count)):
-    view = Path(out) / f"{i:03d}"
+TREES, MOUNTAINS, ROCK = 99, 100, 103
+
+
+def good_map(name: str, seed: int) -> dict:
+    width, height = 14, 22
+    tiles = [{"ground": "grass", "object": 0, "occupied": False, "parts": []} for _ in range(width * height)]
+    uid = 1
+    for y in range(0, height, 2):
+        for x in range(0, width, 2):
+            kind = (TREES, MOUNTAINS, ROCK)[(x // 2 + y // 2) % 3]
+            tile = tiles[y * width + x]
+            tile.update(object=kind, occupied=True)
+            tile["parts"].append([uid, 49, (uid * 7 + seed) % 256, 0, int(x == y), kind])
+            uid += 1
+    return {"map": name, "width": width, "height": height, "tiles": tiles}
+
+
+def scout(out: Path) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    if os.environ.get("FAKE_MAPS") == "empty":
+        maps = [{"map": "empty.mp2", "width": 14, "height": 22,
+                 "tiles": [{"ground": "grass", "object": 0, "occupied": False, "parts": []}] * (14 * 22)}]
+    else:
+        maps = [good_map(name, seed) for seed, name in enumerate(["a.mp2", "b.mp2", "dull.mp2"])]
+    for m in maps:
+        (out / f"{m['map']}.json").write_text(json.dumps(m))
+
+
+def render(view: Path, width: str, height: str, frames: str, source: str) -> None:
     view.mkdir(parents=True)
     subprocess.run(
-        ["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", f"testsrc2=s={width}x{height}:r=40", "-frames:v", frames,
-         "-start_number", "0", str(view / "f%02d.bmp")],
+        ["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", f"{source}:s={width}x{height}:r=40", "-frames:v", frames,
+         "-pix_fmt", "pal8", "-start_number", "0", str(view / "f%02d.bmp")],
         check=True,
     )
-    (view / "map.txt").write_text("fake.mp2\n")
+
+
+flag = sys.argv[1]
+if flag == "--scout-maps":
+    scout(Path(sys.argv[2]))
+elif flag == "--render-views":
+    _, _, views, out, width, height, frames = sys.argv
+    for i, line in enumerate(Path(views).read_text().splitlines()):
+        x, y, name = line.split(" ", 2)
+        view = Path(out) / f"{i:03d}"
+        render(view, width, height, frames, "color=c=green" if name == "dull.mp2" else "mandelbrot=start_scale=3")
+        (view / "map.txt").write_text(f"{name}\n")
+        (view / "view.txt").write_text(f"{x} {y}\n")
+else:
+    sys.exit(f"unexpected arguments {sys.argv[1:]}")
