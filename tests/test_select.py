@@ -11,6 +11,7 @@ from h2live.select import (
     check,
     duplicate_tile_share,
     blank_patch_share,
+    top_sprite,
     empty_square,
     largest_empty_square,
     load_map,
@@ -107,15 +108,22 @@ def test_largest_empty_square_of_a_blank_map_is_the_short_side():
 
 def test_largest_empty_square_measures_the_hole():
     assert largest_empty_square(good_scout().map(), whole(good_scout())) == 1
-    hole = fill_except(Scout(14, 22), [(3, 5, 5, 5)])
-    assert largest_empty_square(hole.map(), whole(hole)) == 5
+    hole = fill_except(Scout(14, 22), [(3, 5, 6, 6)])
+    assert largest_empty_square(hole.map(), whole(hole)) == 6
     assert "empty" in check(hole.map(), whole(hole)).failures
 
 
-def test_a_four_tile_hole_is_allowed():
-    hole = fill_except(Scout(14, 22), [(3, 5, 4, 4)])
-    assert largest_empty_square(hole.map(), whole(hole)) == 4
+def test_a_five_tile_hole_is_allowed():
+    # Sheet 2-06 has one and the user found it fine.
+    hole = fill_except(Scout(14, 22), [(3, 5, 5, 5)])
+    assert largest_empty_square(hole.map(), whole(hole)) == 5
     assert "empty" not in check(hole.map(), whole(hole)).failures
+
+
+def test_empty_space_at_the_top_counts():
+    # The clock covers the top of the view, but the user still called sheet 2-33 "emptyish at top".
+    hole = fill_except(Scout(14, 22), [(0, 0, 6, 6)])
+    assert "empty" in check(hole.map(), whole(hole)).failures
 
 
 def test_empty_square_reports_where_the_hole_is():
@@ -136,11 +144,12 @@ def test_open_water_and_shadows_are_empty():
     assert largest_empty_square(scout.map(), whole(scout)) == 6
 
 
-def test_roads_and_rivers_are_not_empty():
+def test_roads_and_rivers_are_empty_ground():
+    # Sheet 2-02 and 2-38 are plain ground crossed by roads and rivers, and read as empty.
     scout = Scout(9, 9)
     for y in range(9):
         scout.terrain(4, y, ROAD_ICN)
-    assert largest_empty_square(scout.map(), whole(scout)) == 4
+    assert largest_empty_square(scout.map(), whole(scout)) == 9
 
 
 def test_terrain_decorations_are_objects():
@@ -163,10 +172,13 @@ def test_empty_square_only_counts_inside_the_window():
 GRID_OF_HOLES = [(x, y, 4, 4) for x in (0, 5, 10) for y in (0, 5, 10, 15)]
 
 
-def test_blank_patches_share_counts_tiles_in_blank_three_by_three_patches():
+def test_blank_patches_share_counts_tiles_in_blank_two_by_two_patches():
     assert blank_patch_share(good_scout().map(), Window(0, 0, 14, 22)) == 0
     clumped = fill_except(Scout(14, 22), GRID_OF_HOLES)
     assert blank_patch_share(clumped.map(), Window(0, 0, 14, 22)) == 12 * 16 / 308
+    # Single blank tiles and 1-tile-wide strips are not patches.
+    strips = fill_except(Scout(14, 22), [(x, 0, 1, 22) for x in (1, 4, 7, 10)])
+    assert blank_patch_share(strips.map(), whole(strips)) == 0
 
 
 def test_many_small_blank_patches_are_clumped():
@@ -184,11 +196,11 @@ def test_a_few_small_blank_patches_are_fine():
 
 # Sparse views
 
-def test_fewer_than_a_fifth_of_tiles_with_objects_is_sparse():
+def test_fewer_than_22_percent_of_tiles_with_objects_is_sparse():
     sparse = Scout(10, 10)
-    for i in range(19):
-        sparse.add(i % 10, 2 * (i // 10) * 3, (TREES, MOUNTAINS, ROCK)[i % 3], TREE_ICN, sprite=i)
-    assert occupied_share(sparse.map(), whole(sparse)) == 0.19
+    for i in range(21):
+        sparse.add(i % 10, 3 * (i // 10), (TREES, MOUNTAINS, ROCK)[i % 3], TREE_ICN, sprite=i)
+    assert occupied_share(sparse.map(), whole(sparse)) == 0.21
     assert "sparse" in check(sparse.map(), whole(sparse)).failures
     sparse.add(5, 9, ROCK, ROCK_ICN, sprite=99)
     assert "sparse" not in check(sparse.map(), whole(sparse)).failures
@@ -236,6 +248,21 @@ def test_identical_objects_in_an_irregular_cluster_are_allowed():
     assert not regular_patterns(zigzag.map(), whole(zigzag))
 
 
+def test_identical_objects_stepping_on_a_slant_are_a_cluster():
+    # Sheet 2-22 to 2-24: big trees stepping two right and three down read as a forest, not a row.
+    scout = Scout(12, 12)
+    for i in range(3):
+        scout.add(2 * i, 3 * i, sprite=3, size=(3, 3))
+    assert not regular_patterns(scout.map(), whole(scout))
+
+
+def test_identical_big_objects_on_a_true_diagonal_repeat():
+    scout = Scout(12, 12)
+    for i in range(3):
+        scout.add(3 * i, 3 * i, sprite=3, size=(3, 3))
+    assert regular_patterns(scout.map(), whole(scout))
+
+
 def test_overlapping_identical_objects_blend_rather_than_repeat():
     # Sheet 14: big trees stepping two tiles right and one down overlap into one forest.
     scout = Scout(12, 8)
@@ -276,9 +303,41 @@ def test_repetition_only_counts_objects_in_the_window():
     assert not regular_patterns(scout.map(), Window(2, 0, 8, 3))
 
 
+# Frequency: too many copies of one sprite anywhere in the view
+
+def test_many_copies_of_one_sprite_covering_most_objects_fail():
+    # Sheet 2-30: dozens of the same creature and tree.
+    scout = Scout(14, 22)
+    for i in range(12):
+        scout.add(2 * (i % 6), 4 * (i // 6), sprite=1, size=(1, 2))
+    scout.add(0, 12, MOUNTAINS, MOUNTAIN_ICN, sprite=2, size=(2, 2)).add(4, 12, ROCK, ROCK_ICN, sprite=3)
+    copies, share = top_sprite(scout.map(), whole(scout))
+    assert (copies, share) == (12, 24 / 29)
+    assert "frequency" in check(scout.map(), whole(scout)).failures
+
+
+def test_many_copies_among_plenty_of_other_objects_pass():
+    # Sheet 2-31: lots of one wreck, but it holds only about half of the objects' area.
+    scout = Scout(14, 22)
+    for i in range(12):
+        scout.add(2 * (i % 6), 4 * (i // 6), sprite=1)
+    for i in range(12):
+        scout.add(2 * (i % 6), 10 + 4 * (i // 6), ROCK, ROCK_ICN, sprite=100 + i)
+    assert top_sprite(scout.map(), whole(scout)) == (12, 0.5)
+    assert "frequency" not in check(scout.map(), whole(scout)).failures
+
+
+def test_a_few_big_copies_are_not_frequent():
+    scout = Scout(14, 22)
+    for i in range(3):
+        scout.add(0, 4 * i, MOUNTAINS, MOUNTAIN_ICN, sprite=2, size=(5, 3))
+    scout.add(8, 0, ROCK, ROCK_ICN)
+    assert "frequency" not in check(scout.map(), whole(scout)).failures
+
+
 # Object types
 
-def test_one_object_type_over_sixty_percent_is_a_monoculture():
+def test_one_object_type_over_65_percent_is_a_monoculture():
     scout = Scout(10, 1)
     for x in range(7):
         scout.add(x, 0, TREES, sprite=x)
@@ -289,6 +348,7 @@ def test_one_object_type_over_sixty_percent_is_a_monoculture():
 
 
 def test_sixty_percent_is_allowed():
+    # Sheet 2-28 at 64% was fine too.
     scout = Scout(10, 1)
     for x in range(6):
         scout.add(x, 0, TREES, sprite=x)

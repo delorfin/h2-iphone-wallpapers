@@ -19,17 +19,20 @@ from PIL import Image, ImageDraw, ImageFont
 
 from h2live.batch import GAME_DATA, REPO, scout_cache
 from h2live.clip import view_size
-from h2live.select import (MAX_DUPLICATE_TILES, MIN_ANIMATED_TERRAIN, RULES, TILE, View, Window, bmp_pixels, check,
+from h2live.select import (FREQUENT_COPIES, MAX_DUPLICATE_TILES, MIN_ANIMATED_TERRAIN, RULES, TILE, View, Window, bmp_pixels, check,
                            duplicate_tile_share, empty_square, passing_windows, regular_patterns, scout_maps, window_tiles)
 
 # Per rule, the value it judges and the (low, high) band counted as near its threshold: passing, failing.
 NEAR = {
-    "empty": (lambda v: v["empty"], (4, 4), (5, 5)),
-    "clumped": (lambda v: v["blank patches"], (0.22, 0.3), (0.3001, 0.38)),
-    "sparse": (lambda v: v["occupied"], (0.2, 0.25), (0.14, 0.1999)),
+    "empty": (lambda v: v["empty"], (5, 5), (6, 6)),
+    "clumped": (lambda v: v["blank patches"], (0.37, 0.45), (0.4501, 0.53)),
+    "sparse": (lambda v: v["occupied"], (0.22, 0.27), (0.16, 0.2199)),
+    # Near the line: a sprite with enough copies holding a large share of the objects' area.
+    "frequency": (lambda v: v["top sprite share"] if v["top sprite copies"] >= FREQUENT_COPIES else -1,
+                  (0.5, 0.65), (0.6501, 0.8)),
     # Passing views near the line hold three or more touching identical objects that form no row or block.
     "repetition": (lambda v: v["repetition"] or -v["identical touching"], (-99, -3), (1, 1)),
-    "monoculture": (lambda v: v["share"], (0.5, 0.6), (0.6001, 0.7)),
+    "monoculture": (lambda v: v["share"], (0.55, 0.65), (0.6501, 0.72)),
     "few types": (lambda v: v["types"], (3, 3), (2, 2)),
 }
 THUMB = (280, 467)
@@ -54,7 +57,9 @@ def _label(rule: str, values: dict) -> str:
     if rule == "empty":
         return f"largest empty square={values['empty']}"
     if rule == "clumped":
-        return f"in blank 3x3 patches={values['blank patches']:.0%}"
+        return f"in blank 2x2 patches={values['blank patches']:.0%}"
+    if rule == "frequency":
+        return f"top sprite: {values['top sprite copies']} copies, {values['top sprite share']:.0%} of object area"
     if rule == "sparse":
         return f"tiles with objects={values['occupied']:.0%}"
     if values["repetition"]:
@@ -76,7 +81,7 @@ def identical_touching(m, win: Window) -> int:
 def find_candidates(maps, w: int, h: int, per_side: int, rng: random.Random) -> list[dict]:
     """Windows that fail exactly one rule by a little, and windows that pass with that rule at its edge."""
     # Fewer for the rules that rarely decide.
-    wanted = {(rule, passes): per_side - (rule in ("monoculture", "few types", "no animation"))
+    wanted = {(rule, passes): per_side - 2 * (rule in ("monoculture", "few types", "no animation"))
               for rule in RULES for passes in (True, False)}
     found: dict = {key: [] for key in wanted}
     used_maps = set()
@@ -129,6 +134,14 @@ def outlines(m, win: Window, rule: str) -> list[tuple[int, int, int, int]]:
     if rule == "repetition":
         return [(int(m.x0[i]) - win.x, int(m.y0[i]) - win.y, int(m.x1[i]) - win.x, int(m.y1[i]) - win.y)
                 for pattern in regular_patterns(m, win) for i in pattern]
+    if rule == "frequency":
+        present = np.flatnonzero((m.x0 < win.x + win.w) & (m.x1 >= win.x) & (m.y0 < win.y + win.h) & (m.y1 >= win.y)
+                                 & (m.signature >= 0))
+        areas = (m.x1[present].astype(int) - m.x0[present] + 1) * (m.y1[present].astype(int) - m.y0[present] + 1)
+        signatures, inverse = np.unique(m.signature[present], return_inverse=True)
+        top = signatures[np.argmax(np.bincount(inverse, weights=areas))]
+        return [(int(m.x0[i]) - win.x, int(m.y0[i]) - win.y, int(m.x1[i]) - win.x, int(m.y1[i]) - win.y)
+                for i in present if m.signature[i] == top]
     if rule == "clumped":
         ys, xs = np.nonzero(m.in_blank_patch[win.y:win.y + win.h, win.x:win.x + win.w])
         return [(int(x), int(y), int(x), int(y)) for x, y in zip(xs, ys)]
@@ -201,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
         near_pass = [(v, s) for v, s in zip(pool, shares) if MAX_DUPLICATE_TILES - 0.07 < s <= MAX_DUPLICATE_TILES]
         near_fail = [(v, s) for v, s in zip(pool, shares) if MAX_DUPLICATE_TILES < s <= MAX_DUPLICATE_TILES + 0.1]
         for group, verdict in ((near_pass, "PASS"), (near_fail, "FAIL")):
-            for view, share in group[:args.per_side]:
+            for view, share in group[:args.per_side - 1]:
                 values = check(by_map[view.map], Window(view.x, view.y, w, h)).values
                 candidates.append({"map": view.map, "x": view.x, "y": view.y, "rule": "repeated tiles", "verdict": verdict,
                                    "label": f"duplicate 32px tiles={share:.0%} (still check)", "values": values})
