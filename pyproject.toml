@@ -1,0 +1,15 @@
+[project]
+name = "h2live"
+version = "0.1.0"
+description = "Turns h2lwp map renders into iPhone Live Photo wallpapers"
+requires-python = ">=3.12"
+
+[project.scripts]
+h2live = "h2live.batch:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
