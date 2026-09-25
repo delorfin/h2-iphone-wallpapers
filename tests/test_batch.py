@@ -69,3 +69,9 @@ def test_stops_when_no_map_has_a_good_view(tmp_path, capsys):
 def test_scouting_is_cached_per_renderer_build(tmp_path):
     assert run(tmp_path, 1) == 0
     assert len(list((tmp_path / "cache").glob("*.pickle"))) == 1
+
+
+def test_default_scout_cache_follows_the_environment(tmp_path, scout_cache):
+    out = tmp_path / "batch"
+    assert main(["--out", str(out), "--count", "1", "--no-import", "--renderer", fake_renderer(tmp_path)]) == 0
+    assert len(list(scout_cache.glob("*.pickle"))) == 1

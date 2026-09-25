@@ -24,9 +24,12 @@ STEPS_PER_SECOND = 30
 # Keeps every batch together on one day of the Photos and Google Photos timelines, away from real photos.
 # Noon keeps all items on that day in any timezone.
 FIRST_CAPTURE = datetime(1996, 1, 1, 12)
-SCOUT_CACHE = Path(os.environ.get("H2LIVE_SCOUT_CACHE", Path.home() / "Library/Caches/h2live"))
 # Rounds of rendering replacements for views whose still repeats too much.
 MAX_ROUNDS = 10
+
+
+def scout_cache() -> Path:
+    return Path(os.environ.get("H2LIVE_SCOUT_CACHE", Path.home() / "Library/Caches/h2live"))
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -41,7 +44,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--album", default=f"H2 {date.today():%Y-%m-%d}")
     parser.add_argument("--no-import", action="store_true", help="build the files but skip Photos")
     parser.add_argument("--renderer", type=Path, default=REPO / "fheroes2", help="built by ios-livephoto/build.sh")
-    parser.add_argument("--scout-cache", type=Path, default=SCOUT_CACHE, help="where scouted maps are kept between batches")
+    parser.add_argument("--scout-cache", type=Path, default=scout_cache(), help="where scouted maps are kept between batches")
     return parser.parse_args(argv)
 
 
