@@ -11,6 +11,7 @@ import pickle
 import subprocess
 import tempfile
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from random import Random
@@ -51,7 +52,7 @@ OBJECT_LAYER, BACKGROUND_LAYER, TERRAIN_LAYER = 0, 1, 3
 LINE_ICNS = (30, 45)
 OBJ_NONE, OBJ_COAST = 0, 28
 # Bump when the cached form of scouted maps changes.
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 
 
 def _base_type(object_type: int) -> int:
@@ -514,7 +515,23 @@ def bmp_pixels(path: Path) -> np.ndarray:
 
 # Scouting.
 
-def scout_maps(renderer: Path, game_data: Path, cache_dir: Path) -> list[ScoutedMap]:
+def map_files(game_data: Path) -> list[Path]:
+    """The .mp2/.mx2 maps in the user's game data."""
+    folder = game_data / "maps"
+    return sorted((p for p in folder.glob("*") if p.suffix.lower() in (".mp2", ".mx2")), key=lambda p: p.name.lower())
+
+
+def scout_one(renderer: Path, game_data: Path, map_file: Path) -> "ScoutedMap | None":
+    """Scouts one map in its own renderer process: loading several maps in one process lets engine
+    state carry over, so random objects would differ from the later render. None if it fails to load."""
+    with tempfile.TemporaryDirectory() as scratch:
+        subprocess.run([str(renderer), "--scout-maps", scratch, str(map_file)], capture_output=True, text=True,
+                       env={**os.environ, "FHEROES2_DATA": str(game_data)})
+        written = list(Path(scratch).glob("*.json"))
+        return load_map(json.loads(written[0].read_text())) if written else None
+
+
+def scout_maps(renderer: Path, game_data: Path, cache_dir: Path, maps: list[Path] | None = None) -> list[ScoutedMap]:
     """Every map the renderer can load, scouted once per renderer build and cached."""
     stat = renderer.stat()
     cache = cache_dir / f"maps-v{CACHE_VERSION}-{stat.st_size}-{stat.st_mtime_ns}.pickle"
@@ -522,15 +539,14 @@ def scout_maps(renderer: Path, game_data: Path, cache_dir: Path) -> list[Scouted
     if cache.exists():
         return pickle.loads(cache.read_bytes())
 
-    with tempfile.TemporaryDirectory() as scratch:
-        result = subprocess.run([str(renderer), "--scout-maps", scratch], capture_output=True, text=True,
-                                env={**os.environ, "FHEROES2_DATA": str(game_data)})
-        if result.returncode != 0:
-            raise RuntimeError(f"scouting maps failed with exit code {result.returncode}: {result.stderr[-2000:]}")
-        maps = [load_map(json.loads(path.read_text())) for path in sorted(Path(scratch).glob("*.json"))]
+    with ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
+        scouted = list(pool.map(lambda m: scout_one(renderer, game_data, m), maps if maps is not None else map_files(game_data)))
+    found = [m for m in scouted if m is not None]
+    if not found:
+        raise RuntimeError("scouting found no loadable maps; check the renderer build and the game data folder")
 
     cache_dir.mkdir(parents=True, exist_ok=True)
     for old in cache_dir.glob("maps-*.pickle"):
         old.unlink()
-    cache.write_bytes(pickle.dumps(maps))
-    return maps
+    cache.write_bytes(pickle.dumps(found))
+    return found

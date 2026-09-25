@@ -5,13 +5,15 @@ import os
 import random
 import subprocess
 import sys
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from h2live.clip import DIRECTIONS, POSES, make_clip, view_size
 from h2live.livephoto import make_live_photo
 from h2live.photos import import_pairs
-from h2live.select import NotEnoughViews, scout_maps, select_views, window_tiles
+from h2live.select import NotEnoughViews, View, scout_maps, select_views, window_tiles
 
 REPO = Path(__file__).resolve().parents[2]
 # Non-bundle macOS builds only look in ~/.fheroes2 unless told otherwise.
@@ -39,23 +41,37 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--no-import", action="store_true", help="build the files but skip Photos")
     parser.add_argument("--renderer", type=Path, default=REPO / "fheroes2", help="built by ios-livephoto/build.sh")
     parser.add_argument("--scout-cache", type=Path, default=scout_cache(), help="where scouted maps are kept between batches")
+    parser.add_argument("--game-data", type=Path, default=GAME_DATA, help="fheroes2 data folder with DATA and MAPS")
     return parser.parse_args(argv)
+
+
+def render_views(renderer: Path, views: list[View], out: Path, width: int, height: int, frames: int,
+                 game_data: Path = GAME_DATA) -> None:
+    """Renders each view into out/NNN in its own renderer process, several at a time: loading several
+    maps in one process lets engine state carry over, so random objects would differ from the scout."""
+    def render_one(index: int, view: View) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            spec = Path(scratch) / "view.txt"
+            spec.write_text(f"{view.x} {view.y} {view.map}\n")
+            rendered = subprocess.run(
+                [str(renderer), "--render-views", str(spec), str(Path(scratch) / "out"), str(width), str(height), str(frames)],
+                env={**os.environ, "FHEROES2_DATA": str(game_data)}, capture_output=True, text=True,
+            )
+            if rendered.returncode != 0:
+                raise RuntimeError(f"renderer failed with exit code {rendered.returncode} on {view.map}: {rendered.stderr[-500:]}")
+            (Path(scratch) / "out" / "000").rename(out / f"{index:03d}")
+
+    out.mkdir(parents=True, exist_ok=True)
+    with ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
+        list(pool.map(lambda item: render_one(*item), enumerate(views)))
 
 
 def render_good_views(args: argparse.Namespace, frames: Path) -> None:
     """Renders `args.count` views that pass the map rules into frames/NNN."""
     width, height = view_size(args.scale)
-    maps = scout_maps(args.renderer, GAME_DATA, args.scout_cache)
+    maps = scout_maps(args.renderer, args.game_data, args.scout_cache)
     views = select_views(maps, args.count, *window_tiles(width, height), random.Random())
-    args.out.mkdir(parents=True, exist_ok=True)
-    views_file = args.out / "views.txt"
-    views_file.write_text("".join(f"{v.x} {v.y} {v.map}\n" for v in views))
-    rendered = subprocess.run(
-        [str(args.renderer), "--render-views", str(views_file), str(frames), str(width), str(height), str(POSES)],
-        env={**os.environ, "FHEROES2_DATA": str(GAME_DATA)},
-    )
-    if rendered.returncode != 0:
-        raise RuntimeError(f"renderer failed with exit code {rendered.returncode}")
+    render_views(args.renderer, views, frames, width, height, POSES, args.game_data)
 
 
 def main(argv: list[str] | None = None) -> int:

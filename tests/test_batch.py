@@ -15,7 +15,8 @@ def fake_renderer(tmp_path: Path) -> str:
 
 def test_builds_one_pair_per_view_without_importing(tmp_path):
     out = tmp_path / "batch"
-    code = main(["--out", str(out), "--count", "2", "--no-import", "--renderer", fake_renderer(tmp_path)])
+    code = main(["--out", str(out), "--count", "2", "--no-import", "--renderer", fake_renderer(tmp_path),
+                 "--game-data", str(fake_game_data(tmp_path, "good"))])
     assert code == 0
     assert sorted(p.name for p in (out / "live").iterdir()) == ["H2_000.HEIC", "H2_000.mov", "H2_001.HEIC", "H2_001.mov"]
 
@@ -24,7 +25,8 @@ def test_refuses_non_empty_output_dir(tmp_path):
     out = tmp_path / "batch"
     out.mkdir()
     (out / "old.txt").write_text("previous batch")
-    assert main(["--out", str(out), "--count", "1", "--no-import", "--renderer", fake_renderer(tmp_path)]) != 0
+    assert main(["--out", str(out), "--count", "1", "--no-import", "--renderer", fake_renderer(tmp_path),
+                 "--game-data", str(fake_game_data(tmp_path, "good"))]) != 0
     assert sorted(p.name for p in out.iterdir()) == ["old.txt"]
 
 
@@ -32,19 +34,22 @@ def test_renderer_failure_stops_the_batch(tmp_path):
     failing = tmp_path / "renderer"
     failing.write_text("#!/bin/sh\nexit 3\n")
     failing.chmod(0o755)
-    assert main(["--out", str(tmp_path / "batch"), "--count", "1", "--no-import", "--renderer", str(failing)]) != 0
+    assert main(["--out", str(tmp_path / "batch"), "--count", "1", "--no-import", "--renderer", str(failing),
+                 "--game-data", str(fake_game_data(tmp_path, "good"))]) != 0
 
 
-def fake_renderer_with(tmp_path: Path, maps: str) -> str:
-    wrapper = tmp_path / "renderer"
-    wrapper.write_text(f"#!/bin/sh\nFAKE_MAPS={maps} exec {sys.executable} {FAKE} \"$@\"\n")
-    wrapper.chmod(0o755)
-    return str(wrapper)
+def fake_game_data(tmp_path: Path, maps: str) -> Path:
+    folder = tmp_path / "game-data"
+    (folder / "maps").mkdir(parents=True, exist_ok=True)
+    for name in (["empty.mp2"] if maps == "empty" else ["a.mp2", "b.mp2", "dull.mp2"]):
+        (folder / "maps" / name).write_text("fake")
+    return folder
 
 
 def run(tmp_path: Path, count: int, maps: str = "good") -> int:
     return main(["--out", str(tmp_path / "batch"), "--count", str(count), "--no-import",
-                 "--renderer", fake_renderer_with(tmp_path, maps), "--scout-cache", str(tmp_path / "cache")])
+                 "--renderer", fake_renderer(tmp_path), "--scout-cache", str(tmp_path / "cache"),
+                 "--game-data", str(fake_game_data(tmp_path, maps))])
 
 
 def test_renders_every_view_that_passes_the_map_rules(tmp_path):
@@ -73,5 +78,6 @@ def test_scouting_is_cached_per_renderer_build(tmp_path):
 
 def test_default_scout_cache_follows_the_environment(tmp_path, scout_cache):
     out = tmp_path / "batch"
-    assert main(["--out", str(out), "--count", "1", "--no-import", "--renderer", fake_renderer(tmp_path)]) == 0
+    assert main(["--out", str(out), "--count", "1", "--no-import", "--renderer", fake_renderer(tmp_path),
+                 "--game-data", str(fake_game_data(tmp_path, "good"))]) == 0
     assert len(list(scout_cache.glob("*.pickle"))) == 1

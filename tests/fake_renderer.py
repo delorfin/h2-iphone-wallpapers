@@ -1,8 +1,7 @@
 """Stands in for fheroes2's --scout-maps and --render-views so batch tests don't need game data.
 
-FAKE_MAPS picks the scouted maps: "good" (default) gives three small maps with one good view each,
-"empty" gives a map with nothing on it. Views of "dull.mp2" render as one flat colour, which the
-rendered-still check rejects.
+Scouts one map per call, like the batch asks: a.mp2, b.mp2 and dull.mp2 are small maps with one good
+view each; empty.mp2 has nothing on it. Views of "dull.mp2" render as one flat colour.
 """
 
 import json
@@ -28,13 +27,14 @@ def good_map(name: str, seed: int) -> dict:
     return {"map": name, "width": width, "height": height, "tiles": tiles}
 
 
-def scout(out: Path) -> None:
+def scout(out: Path, map_file: str) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    if os.environ.get("FAKE_MAPS") == "empty":
+    name = Path(map_file).name
+    if name == "empty.mp2":
         maps = [{"map": "empty.mp2", "width": 14, "height": 22,
                  "tiles": [{"ground": "grass", "object": 0, "occupied": False, "parts": []}] * (14 * 22)}]
     else:
-        maps = [good_map(name, seed) for seed, name in enumerate(["a.mp2", "b.mp2", "dull.mp2"])]
+        maps = [good_map(name, ["a.mp2", "b.mp2", "dull.mp2"].index(name))]
     for m in maps:
         (out / f"{m['map']}.json").write_text(json.dumps(m))
 
@@ -50,7 +50,7 @@ def render(view: Path, width: str, height: str, frames: str, source: str) -> Non
 
 flag = sys.argv[1]
 if flag == "--scout-maps":
-    scout(Path(sys.argv[2]))
+    scout(Path(sys.argv[2]), sys.argv[3])
 elif flag == "--render-views":
     _, _, views, out, width, height, frames = sys.argv
     for i, line in enumerate(Path(views).read_text().splitlines()):

@@ -128,3 +128,36 @@ def test_render_wallpapers_still_works(tmp_path):
     result = run("--render-wallpapers", str(tmp_path), "1", "420", "700", "1")
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "000" / "f00.bmp").exists()
+
+
+# Has random-race castles and random artifacts/resources, which the tests above' map lacks.
+RANDOM_MAP = GAME_DATA / "maps" / "BELTWAY.MP2"
+
+
+def scout_one(out: Path, map_file: Path) -> dict:
+    result = run("--scout-maps", str(out), str(map_file))
+    assert result.returncode == 0, result.stderr
+    return json.loads(next(out.glob("*.json")).read_text())
+
+
+def test_scouting_random_castles_is_repeatable(tmp_path):
+    (tmp_path / "a").mkdir(); (tmp_path / "b").mkdir()
+    assert scout_one(tmp_path / "a", RANDOM_MAP) == scout_one(tmp_path / "b", RANDOM_MAP)
+
+
+def test_scouted_map_does_not_depend_on_other_maps_in_the_batch(tmp_path):
+    from h2live.select import scout_maps
+    alone = scout_maps(RENDERER, GAME_DATA, tmp_path / "alone", maps=[RANDOM_MAP])
+    together = scout_maps(RENDERER, GAME_DATA, tmp_path / "together", maps=[MAP, RANDOM_MAP])
+    a, b = (next(m for m in scouted if Path(m.path).name == RANDOM_MAP.name) for scouted in (alone, together))
+    for field in ("occupied", "ground", "kind", "signature", "x0", "y0", "animated"):
+        assert (getattr(a, field) == getattr(b, field)).all(), field
+
+
+def test_rendered_view_does_not_depend_on_other_views_in_the_batch(tmp_path):
+    from h2live.batch import render_views
+    from h2live.select import View
+    view = View(map=str(RANDOM_MAP), x=25, y=10)
+    render_views(RENDERER, [view], tmp_path / "alone", 420, 700, 1)
+    render_views(RENDERER, [View(map=str(MAP), x=3, y=3), View(map=str(MAP), x=5, y=7), view], tmp_path / "together", 420, 700, 1)
+    assert (tmp_path / "alone/000/f00.bmp").read_bytes() == (tmp_path / "together/002/f00.bmp").read_bytes()
