@@ -47,17 +47,17 @@ def run(tmp_path: Path, count: int, maps: str = "good") -> int:
                  "--renderer", fake_renderer_with(tmp_path, maps), "--scout-cache", str(tmp_path / "cache")])
 
 
-def test_renders_only_views_that_pass_the_rules_and_the_still_check(tmp_path):
-    # dull.mp2 passes the map rules but renders flat, so the still check must turn it away.
-    assert run(tmp_path, 2) == 0
+def test_renders_every_view_that_passes_the_map_rules(tmp_path):
+    # dull.mp2 renders flat; the user dropped the image check because it rejected views they liked.
+    assert run(tmp_path, 3) == 0
     frames = tmp_path / "batch/frames"
-    assert sorted((d / "map.txt").read_text().strip() for d in frames.iterdir()) == ["a.mp2", "b.mp2"]
+    assert sorted((d / "map.txt").read_text().strip() for d in frames.iterdir()) == ["a.mp2", "b.mp2", "dull.mp2"]
     assert all((d / "view.txt").read_text().split() == ["0", "0"] for d in frames.iterdir())
 
 
 def test_stops_with_a_message_when_too_few_views_pass(tmp_path, capsys):
-    assert run(tmp_path, 3) != 0
-    assert "2 of 3" in capsys.readouterr().err
+    assert run(tmp_path, 4) != 0
+    assert "3 of 4" in capsys.readouterr().err
     assert not (tmp_path / "batch/live").exists()
 
 
