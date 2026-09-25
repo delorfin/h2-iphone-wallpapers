@@ -1,0 +1,35 @@
+import sys
+from pathlib import Path
+
+from h2live.batch import main
+
+FAKE = Path(__file__).with_name("fake_renderer.py")
+
+
+def fake_renderer(tmp_path: Path) -> str:
+    wrapper = tmp_path / "renderer"
+    wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} {FAKE} \"$@\"\n")
+    wrapper.chmod(0o755)
+    return str(wrapper)
+
+
+def test_builds_one_pair_per_view_without_importing(tmp_path):
+    out = tmp_path / "batch"
+    code = main(["--out", str(out), "--count", "2", "--no-import", "--renderer", fake_renderer(tmp_path)])
+    assert code == 0
+    assert sorted(p.name for p in (out / "live").iterdir()) == ["H2_000.HEIC", "H2_000.mov", "H2_001.HEIC", "H2_001.mov"]
+
+
+def test_refuses_non_empty_output_dir(tmp_path):
+    out = tmp_path / "batch"
+    out.mkdir()
+    (out / "old.txt").write_text("previous batch")
+    assert main(["--out", str(out), "--count", "1", "--no-import", "--renderer", fake_renderer(tmp_path)]) != 0
+    assert sorted(p.name for p in out.iterdir()) == ["old.txt"]
+
+
+def test_renderer_failure_stops_the_batch(tmp_path):
+    failing = tmp_path / "renderer"
+    failing.write_text("#!/bin/sh\nexit 3\n")
+    failing.chmod(0o755)
+    assert main(["--out", str(tmp_path / "batch"), "--count", "1", "--no-import", "--renderer", str(failing)]) != 0
