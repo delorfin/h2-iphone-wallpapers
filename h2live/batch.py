@@ -103,8 +103,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import_pairs(pairs, args.album)
     print(f"Imported {len(pairs)} Live Photos into the Photos album {args.album!r}.")
-    print("Next: in Photos on the Mac, select the album's items → Share → AirDrop → your iPhone,")
-    print("then on the iPhone add them to the H2 album.")
+    print("Next: select the iPhone in Finder's sidebar to sync the album (it must be ticked under Photos → Selected albums).")
     return 0
 
 
