@@ -57,6 +57,11 @@ def test_scout_describes_every_tile(scouted):
         assert any(part[3] in (0, 1) for part in tile["parts"])  # object or background layer
 
 
+def test_scout_names_the_object_type_of_parts(scouted):
+    trees = 99  # MP2::OBJ_TREES
+    assert any(part[5] == trees for tile in scouted["tiles"] for part in tile["parts"])
+
+
 def test_scout_groups_multi_tile_objects_by_uid(scouted):
     tiles_per_uid = {}
     for tile in scouted["tiles"]:
