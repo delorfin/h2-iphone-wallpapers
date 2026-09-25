@@ -69,20 +69,29 @@ def test_pair_stays_small(pair):
     assert sum(path.stat().st_size for path in pair) < 4_000_000
 
 
-def test_video_is_tagged_bt709(pair):
+def test_video_uses_the_iphone_camera_colour_format(pair):
+    # Same as camera Live Photos: with BT.709/limited-range video the lock screen flashed greens at the settle.
     _, mov = pair
     video = probe(mov)["streams"][0]
-    assert (video["color_space"], video["color_primaries"], video["color_transfer"]) == ("bt709", "bt709", "bt709")
+    assert (video["color_primaries"], video["color_transfer"], video["color_space"], video["color_range"]) == \
+        ("smpte432", "bt709", "smpte170m", "pc")
+
+
+def test_still_is_labelled_display_p3_like_camera_photos(pair):
+    heic, _ = pair
+    t = tags(heic)
+    assert t["ICC_Profile:ProfileDescription"] == "Display P3"
+    assert t["EXIF:ColorSpace"] == "Uncalibrated"
 
 
 def test_still_matches_the_video_frame_it_settles_on(pair, tmp_path):
     # iOS crossfades from the video to the still; any colour mismatch shows as a flash.
-    # Decode the video with BT.709, as an iPhone does for HD video.
+    # Both hold Display P3 values, so compare them without colour conversion.
     heic, mov = pair
     still, frame = tmp_path / "still.png", tmp_path / "frame.png"
-    subprocess.run(["magick", str(heic), str(still)], check=True)
+    subprocess.run(["magick", str(heic), "+profile", "*", str(still)], check=True)
     subprocess.run(["ffmpeg", "-loglevel", "error", "-ss", "0.5", "-i", str(mov), "-map", "0:v:0", "-frames:v", "1",
-                    "-vf", "scale=in_color_matrix=bt709:in_range=tv,format=rgb24", str(frame)], check=True)
+                    "-vf", "scale=in_color_matrix=bt601:in_range=pc,format=rgb24", str(frame)], check=True)
     result = subprocess.run(["magick", "compare", "-metric", "MAE", str(still), str(frame), "null:"],
                             capture_output=True, text=True)
     normalized = float(result.stderr.split("(")[1].split(")")[0])

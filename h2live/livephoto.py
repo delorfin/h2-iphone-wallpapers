@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent / "base"
+DISPLAY_P3 = Path("/System/Library/ColorSync/Profiles/Display P3.icc")
 
 
 def _run(*args) -> bytes:
@@ -35,8 +36,11 @@ def make_live_photo(clip: Path, out_dir: Path, name: str, captured: datetime, ba
         _run("MP4Box", "-add", raw, "-add", f"{base_mov}#2", "-add", f"{base_mov}#3", "-new", mov)
 
         still = tmp / "still.png"
-        _run("ffmpeg", "-loglevel", "error", "-y", "-ss", "0.5", "-i", mov, "-map", "0:v:0", "-frames:v", "1", still)
-        _run("magick", still, "-quality", "85", heic)
+        # The still takes the video's own Display P3 values at the still-image time and is labelled P3,
+        # as camera photos are, so nothing changes when the lock screen settles from video to still.
+        _run("ffmpeg", "-loglevel", "error", "-y", "-ss", "0.5", "-i", mov, "-map", "0:v:0", "-frames:v", "1",
+             "-vf", "scale=in_color_matrix=bt601:in_range=pc,format=rgb24", still)
+        _run("magick", still, "-profile", DISPLAY_P3, "-quality", "85", heic)
 
     for target, source in ((mov, base_mov), (heic, base_heic)):
         _run("exiftool", "-ee3", "-TagsFromFile", source, "-all:all", target, "-overwrite_original", "-m", "-F")
@@ -55,5 +59,5 @@ def make_live_photo(clip: Path, out_dir: Path, name: str, captured: datetime, ba
     _run("exiftool", *shared,
          "-LivePhotoAuto=1", "-LivePhotoVitalityScore=1", "-LivePhotoVitalityScoringVersion=4",
          "-LivePhotoVideoIndex=1", mov)
-    _run("exiftool", *shared, f"-AllDates={stamp}", "-LivePhotoVideoIndex=0", heic)
+    _run("exiftool", *shared, f"-AllDates={stamp}", "-LivePhotoVideoIndex=0", "-EXIF:ColorSpace#=65535", heic)
     return heic, mov

@@ -42,8 +42,8 @@ def test_brightness_dims_the_picture(frames_dir, tmp_path):
 
 
 def test_rejects_wrong_frame_count(frames_dir, tmp_path):
-    (frames_dir / "f39.bmp").unlink()
-    with pytest.raises(ValueError, match="expected 40 frames"):
+    (frames_dir / "f29.bmp").unlink()
+    with pytest.raises(ValueError, match="expected 30 frames"):
         make_clip(frames_dir, tmp_path / "clip.mov", brightness=70, scale=3, direction=(1, 0))
 
 

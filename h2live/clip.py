@@ -27,7 +27,7 @@ def _pan_start(step: int, margin: int) -> int:
 
 
 def make_clip(frames_dir: Path, out: Path, brightness: int, scale: int, direction: tuple[int, int],
-              steps_per_second: int = 40) -> None:
+              steps_per_second: int = 30) -> None:
     if not 1 <= brightness <= 100:
         raise ValueError(f"brightness must be 1-100, got {brightness}")
     if direction not in DIRECTIONS:
@@ -50,17 +50,19 @@ def make_clip(frames_dir: Path, out: Path, brightness: int, scale: int, directio
         f"scale=iw*{scale}:ih*{scale}:flags=neighbor,"
         f"crop={WIDTH}:{HEIGHT}:x='{x}':y='{y}',"
         f"colorchannelmixer=rr={level}:gg={level}:bb={level},"
-        # iPhones decode untagged HD video as BT.709; ffmpeg would otherwise encode BT.601, which
-        # shifts greens against the still and flashes when iOS settles on it.
-        "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p"
+        # The iPhone camera's own Live Photo format: Display P3 primaries, BT.709 transfer, BT.601
+        # matrix, full range. With anything else the lock screen flashed greens at the settle.
+        "scale=out_color_matrix=bt709:out_range=tv,format=yuv444p,"
+        "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv,"
+        "colorspace=primaries=smpte432:trc=bt709:space=smpte170m:range=pc:format=yuv420p"
     )
     subprocess.run(
         ["ffmpeg", "-loglevel", "error", "-y",
          "-framerate", str(steps_per_second), "-i", str(frames_dir / "f%02d.bmp"),
          "-vf", video_filter, "-frames:v", str(OUTPUT_FPS),
-         "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
+         "-colorspace", "smpte170m", "-color_primaries", "smpte432", "-color_trc", "bt709", "-color_range", "pc",
          "-c:v", "libx265", "-crf", "20", "-tag:v", "hvc1",
-         "-x265-params", "log-level=error:colorprim=bt709:transfer=bt709:colormatrix=bt709:range=limited",
+         "-x265-params", "log-level=error:colorprim=smpte432:transfer=bt709:colormatrix=smpte170m:range=full",
          str(out)],
         check=True,
     )

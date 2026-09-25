@@ -15,9 +15,9 @@ from h2live.photos import import_pairs
 REPO = Path(__file__).resolve().parents[2]
 # Non-bundle macOS builds only look in ~/.fheroes2 unless told otherwise.
 GAME_DATA = Path.home() / "Library/Application Support/fheroes2"
-# iOS plays about 0.2 s of the clip over about 2 s on the lock screen; at 40 steps per second
-# that looks like the game's own speed (one step per 250 ms).
-STEPS_PER_SECOND = 40
+# iOS plays about 0.2 s of the clip over about 2 s on the lock screen, crossfading between video
+# frames. 30 steps per second (each pose held for 2 frames) balanced speed against smearing best.
+STEPS_PER_SECOND = 30
 # Keeps every batch together on one day of the Photos and Google Photos timelines, away from real photos.
 # Noon keeps all items on that day in any timezone.
 FIRST_CAPTURE = datetime(1996, 1, 1, 12)
