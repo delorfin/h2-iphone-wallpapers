@@ -168,17 +168,25 @@ def _area(grid: np.ndarray, win: Window) -> np.ndarray:
     return grid[win.y:win.y + win.h, win.x:win.x + win.w]
 
 
-def largest_empty_square(m: ScoutedMap, win: Window) -> int:
+def empty_square(m: ScoutedMap, win: Window) -> tuple[int, int, int]:
+    """Side and top left tile (relative to the window) of the largest square without objects."""
     empty = ~_area(m.occupied, win)
     size = np.zeros((empty.shape[0] + 1, empty.shape[1] + 1), np.int32)
     for y in range(empty.shape[0]):
         for x in range(empty.shape[1]):
             if empty[y, x]:
                 size[y + 1, x + 1] = 1 + min(size[y, x + 1], size[y + 1, x], size[y, x])
-    return int(size.max())
+    y, x = np.unravel_index(np.argmax(size), size.shape)
+    side = int(size[y, x])
+    return side, int(x) - side, int(y) - side
 
 
-def largest_repeat_group(m: ScoutedMap, win: Window) -> int:
+def largest_empty_square(m: ScoutedMap, win: Window) -> int:
+    return empty_square(m, win)[0]
+
+
+def repeat_group(m: ScoutedMap, win: Window) -> list[int]:
+    """The largest set of identical objects in the window linked by touching."""
     present = _present(m, win) & (m.signature >= 0)
     parent = {int(i): int(i) for i in np.flatnonzero(present)}
 
@@ -191,10 +199,14 @@ def largest_repeat_group(m: ScoutedMap, win: Window) -> int:
     for a, b in m.links:
         if present[a] and present[b]:
             parent[root(int(a))] = root(int(b))
-    sizes = defaultdict(int)
+    groups = defaultdict(list)
     for i in parent:
-        sizes[root(i)] += 1
-    return max(sizes.values(), default=0)
+        groups[root(i)].append(i)
+    return max(groups.values(), key=len, default=[])
+
+
+def largest_repeat_group(m: ScoutedMap, win: Window) -> int:
+    return len(repeat_group(m, win))
 
 
 def type_mix(m: ScoutedMap, win: Window) -> tuple[float, int]:

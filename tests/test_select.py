@@ -10,10 +10,12 @@ from h2live.select import (
     animation,
     check,
     duplicate_tile_share,
+    empty_square,
     largest_empty_square,
     largest_repeat_group,
     load_map,
     passing_windows,
+    repeat_group,
     select_views,
     type_mix,
     window_tiles,
@@ -107,6 +109,15 @@ def test_a_four_tile_hole_is_allowed():
     assert "empty" not in check(hole.map(), whole(hole)).failures
 
 
+def test_empty_square_reports_where_the_hole_is():
+    hole = Scout(8, 8)
+    for y in range(8):
+        for x in range(8):
+            if not (2 <= x < 5 and 3 <= y < 6):
+                hole.add(x, y, sprite=x * 10 + y)
+    assert empty_square(hole.map(), Window(1, 1, 7, 7)) == (3, 1, 2)
+
+
 def test_shadows_and_water_do_not_fill_space():
     scout = Scout(6, 6).water(0, 0, 6, 6)
     for x in range(6):
@@ -130,6 +141,12 @@ def test_three_identical_objects_in_a_row_repeat():
     scout = Scout(10, 3).add(1, 1, sprite=5).add(2, 1, sprite=5).add(3, 1, sprite=5)
     assert largest_repeat_group(scout.map(), whole(scout)) == 3
     assert "repetition" in check(scout.map(), whole(scout)).failures
+
+
+def test_repeat_group_lists_the_linked_objects():
+    m = Scout(10, 3).add(1, 1, sprite=5).add(2, 1, sprite=5).add(3, 1, sprite=5).add(6, 1, sprite=5).map()
+    group = repeat_group(m, Window(0, 0, 10, 3))
+    assert sorted(int(m.x0[i]) for i in group) == [1, 2, 3]
 
 
 def test_a_pair_of_identical_objects_is_allowed():
