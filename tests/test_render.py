@@ -51,3 +51,9 @@ def test_two_runs_pick_different_maps(tmp_path):
 def test_rejects_scale_outside_2_to_4(tmp_path, scale):
     assert render(tmp_path / "out", 1, scale).returncode != 0
     assert not (tmp_path / "out").exists()
+
+
+def test_renderer_is_built_without_developer_assertions():
+    # Some shipped maps trip loader assertions (e.g. extra bytes at the end of "Easy Walk.mp2")
+    # that release builds skip; with them compiled in, a batch aborts at random.
+    assert b"fs.tell() + 4 == fs.size()" not in RENDERER.read_bytes()
