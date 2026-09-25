@@ -20,12 +20,15 @@ from PIL import Image, ImageDraw, ImageFont
 from h2live.batch import GAME_DATA, REPO, scout_cache
 from h2live.clip import view_size
 from h2live.select import (MAX_DUPLICATE_TILES, MIN_ANIMATED_TERRAIN, RULES, TILE, View, Window, bmp_pixels, check,
-                           duplicate_tile_share, empty_square, passing_windows, repeat_group, scout_maps, window_tiles)
+                           duplicate_tile_share, empty_square, passing_windows, regular_patterns, scout_maps, window_tiles)
 
 # Per rule, the value it judges and the (low, high) band counted as near its threshold: passing, failing.
 NEAR = {
     "empty": (lambda v: v["empty"], (4, 4), (5, 5)),
-    "repetition": (lambda v: v["repetition"], (2, 2), (3, 3)),
+    "clumped": (lambda v: v["blank patches"], (0.22, 0.3), (0.3001, 0.38)),
+    "sparse": (lambda v: v["occupied"], (0.2, 0.25), (0.14, 0.1999)),
+    # Passing views near the line hold three or more touching identical objects that form no row or block.
+    "repetition": (lambda v: v["repetition"] or -v["identical touching"], (-99, -3), (1, 1)),
     "monoculture": (lambda v: v["share"], (0.5, 0.6), (0.6001, 0.7)),
     "few types": (lambda v: v["types"], (3, 3), (2, 2)),
 }
@@ -50,13 +53,31 @@ def _label(rule: str, values: dict) -> str:
         return f"types={values['types']}"
     if rule == "empty":
         return f"largest empty square={values['empty']}"
-    return f"repeat group={values['repetition']}"
+    if rule == "clumped":
+        return f"in blank 3x3 patches={values['blank patches']:.0%}"
+    if rule == "sparse":
+        return f"tiles with objects={values['occupied']:.0%}"
+    if values["repetition"]:
+        return f"rows/blocks of identical objects={values['repetition']}"
+    return f"no row/block; {values['identical touching']} identical objects touch"
+
+
+def identical_touching(m, win: Window) -> int:
+    """Objects in the window that touch an identical object."""
+    present = np.flatnonzero((m.x0 < win.x + win.w) & (m.x1 >= win.x) & (m.y0 < win.y + win.h) & (m.y1 >= win.y)
+                             & (m.signature >= 0))
+    x0, y0, x1, y1, sig = (a[present].astype(np.int32) for a in (m.x0, m.y0, m.x1, m.y1, m.signature))
+    touch = ((x0[:, None] <= x1[None, :] + 1) & (x0[None, :] <= x1[:, None] + 1) & (y0[:, None] <= y1[None, :] + 1)
+             & (y0[None, :] <= y1[:, None] + 1) & (sig[:, None] == sig[None, :]))
+    np.fill_diagonal(touch, False)
+    return int(touch.any(axis=1).sum())
 
 
 def find_candidates(maps, w: int, h: int, per_side: int, rng: random.Random) -> list[dict]:
     """Windows that fail exactly one rule by a little, and windows that pass with that rule at its edge."""
-    # One more each side for the two rules that turn away the most windows.
-    wanted = {(rule, passes): per_side + (rule in ("empty", "repetition")) for rule in RULES for passes in (True, False)}
+    # Fewer for the rules that rarely decide.
+    wanted = {(rule, passes): per_side - (rule in ("monoculture", "few types", "no animation"))
+              for rule in RULES for passes in (True, False)}
     found: dict = {key: [] for key in wanted}
     used_maps = set()
     order = list(maps)
@@ -78,6 +99,7 @@ def find_candidates(maps, w: int, h: int, per_side: int, rng: random.Random) -> 
                 for i in rng.sample(range(len(xs)), min(len(xs), 60)):
                     win = Window(int(xs[i]), int(ys[i]), w, h)
                     verdict = check(m, win)
+                    verdict.values["identical touching"] = identical_touching(m, win)
                     if _near(rule, verdict.values, passes):
                         found[key].append({"map": m.path, "x": win.x, "y": win.y, "rule": rule,
                                            "verdict": "PASS" if passes else "FAIL", "label": _label(rule, verdict.values),
@@ -106,7 +128,10 @@ def outlines(m, win: Window, rule: str) -> list[tuple[int, int, int, int]]:
         return [(x, y, x + side - 1, y + side - 1)] if side else []
     if rule == "repetition":
         return [(int(m.x0[i]) - win.x, int(m.y0[i]) - win.y, int(m.x1[i]) - win.x, int(m.y1[i]) - win.y)
-                for i in repeat_group(m, win)]
+                for pattern in regular_patterns(m, win) for i in pattern]
+    if rule == "clumped":
+        ys, xs = np.nonzero(m.in_blank_patch[win.y:win.y + win.h, win.x:win.x + win.w])
+        return [(int(x), int(y), int(x), int(y)) for x, y in zip(xs, ys)]
     return []
 
 
@@ -123,9 +148,16 @@ def contact_sheet(items: list[dict], out: Path, columns: int = 8) -> None:
         top = gap + (n // columns) * (THUMB[1] + label_h + gap)
         thumb = item["image"].resize(THUMB, Image.LANCZOS)
         sx, sy = THUMB[0] / item["image"].width * TILE, THUMB[1] / item["image"].height * TILE
-        boxes = ImageDraw.Draw(thumb)
+        # Blank-patch tiles are shaded; squares and repeated objects are outlined.
+        shade = Image.new("RGBA", THUMB, (0, 0, 0, 0))
+        boxes = ImageDraw.Draw(shade)
         for x0, y0, x1, y1 in item["outlines"]:
-            boxes.rectangle((x0 * sx, y0 * sy, (x1 + 1) * sx - 1, (y1 + 1) * sy - 1), outline=(255, 0, 255), width=2)
+            box = (x0 * sx, y0 * sy, (x1 + 1) * sx - 1, (y1 + 1) * sy - 1)
+            if item["rule"] == "clumped":
+                boxes.rectangle(box, fill=(255, 0, 255, 90))
+            else:
+                boxes.rectangle(box, outline=(255, 0, 255, 255), width=2)
+        thumb = Image.alpha_composite(thumb.convert("RGBA"), shade).convert("RGB")
         sheet.paste(thumb, (left, top + label_h))
         colour = (0, 120, 0) if item["verdict"] == "PASS" else (190, 0, 0)
         draw.text((left, top), f"{item['id']:02d} {item['verdict']} {item['rule']}", fill=colour, font=big)
@@ -157,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
         if len(xs):
             i = rng.randrange(len(xs))
             pool.append(View(m.path, int(xs[i]), int(ys[i])))
-        if len(pool) == 150:
+        if len(pool) == 300:
             break
 
     (args.out / "stills").mkdir(parents=True, exist_ok=True)

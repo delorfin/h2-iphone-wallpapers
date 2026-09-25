@@ -10,12 +10,13 @@ from h2live.select import (
     animation,
     check,
     duplicate_tile_share,
+    blank_patch_share,
     empty_square,
     largest_empty_square,
-    largest_repeat_group,
     load_map,
+    occupied_share,
     passing_windows,
-    repeat_group,
+    regular_patterns,
     select_views,
     type_mix,
     window_tiles,
@@ -23,6 +24,7 @@ from h2live.select import (
 
 TREES, MOUNTAINS, ROCK, LAKE = 99, 100, 103, 104
 TREE_ICN, MOUNTAIN_ICN, ROCK_ICN = 49, 32, 51
+ROAD_ICN, DIRT_DECOR_ICN = 30, 56
 
 
 class Scout:
@@ -53,6 +55,12 @@ class Scout:
         self.tile(x, y)["parts"].append([uid, 50, 7, 2, int(animated), 0])
         return self
 
+    def terrain(self, x: int, y: int, icn: int) -> "Scout":
+        """A terrain-layer part: a road, river or ground decoration."""
+        uid, self.next_uid = self.next_uid, self.next_uid + 1
+        self.tile(x, y)["parts"].append([uid, icn, 3, 3, 0, 0])
+        return self
+
     def water(self, x: int, y: int, w: int, h: int) -> "Scout":
         for dy in range(h):
             for dx in range(w):
@@ -81,104 +89,169 @@ def good_scout(width: int = 14, height: int = 22, seed: int = 0) -> Scout:
 
 # Empty space
 
+def fill_except(scout: Scout, holes: list[tuple[int, int, int, int]]) -> Scout:
+    """Covers the map with varied 1x1 objects of three types, except inside the (x, y, w, h) holes."""
+    kinds = [(TREES, TREE_ICN), (MOUNTAINS, MOUNTAIN_ICN), (ROCK, ROCK_ICN)]
+    for y in range(scout.height):
+        for x in range(scout.width):
+            if not any(hx <= x < hx + hw and hy <= y < hy + hh for hx, hy, hw, hh in holes):
+                kind, icn = kinds[(x + y) % 3]
+                scout.add(x, y, kind, icn, sprite=y * scout.width + x)
+    return scout
+
+
 def test_largest_empty_square_of_a_blank_map_is_the_short_side():
     scout = Scout(6, 9)
     assert largest_empty_square(scout.map(), whole(scout)) == 6
 
 
 def test_largest_empty_square_measures_the_hole():
-    scout = good_scout()
-    m = scout.map()
-    assert largest_empty_square(m, whole(scout)) == 1
-    hole = Scout(14, 22)
-    for y in range(22):
-        for x in range(14):
-            if not (3 <= x < 8 and 5 <= y < 10):
-                hole.add(x, y, sprite=x * 100 + y)
+    assert largest_empty_square(good_scout().map(), whole(good_scout())) == 1
+    hole = fill_except(Scout(14, 22), [(3, 5, 5, 5)])
     assert largest_empty_square(hole.map(), whole(hole)) == 5
     assert "empty" in check(hole.map(), whole(hole)).failures
 
 
 def test_a_four_tile_hole_is_allowed():
-    hole = Scout(14, 22)
-    for y in range(22):
-        for x in range(14):
-            if not (3 <= x < 7 and 5 <= y < 9):
-                hole.add(x, y, sprite=x * 100 + y)
+    hole = fill_except(Scout(14, 22), [(3, 5, 4, 4)])
     assert largest_empty_square(hole.map(), whole(hole)) == 4
     assert "empty" not in check(hole.map(), whole(hole)).failures
 
 
 def test_empty_square_reports_where_the_hole_is():
-    hole = Scout(8, 8)
-    for y in range(8):
-        for x in range(8):
-            if not (2 <= x < 5 and 3 <= y < 6):
-                hole.add(x, y, sprite=x * 10 + y)
+    hole = fill_except(Scout(8, 8), [(2, 3, 3, 3)])
     assert empty_square(hole.map(), Window(1, 1, 7, 7)) == (3, 1, 2)
 
 
-def test_shadows_and_water_do_not_fill_space():
-    scout = Scout(6, 6).water(0, 0, 6, 6)
+def test_tiles_on_a_terrain_border_are_not_empty():
+    # Water on the left half, grass on the right: the two columns along the shore don't count as empty.
+    scout = Scout(10, 10).water(0, 0, 5, 10)
+    assert largest_empty_square(scout.map(), whole(scout)) == 4
+
+
+def test_open_water_and_shadows_are_empty():
+    scout = Scout(6, 6, ground="water")
     for x in range(6):
         scout.shadow(x, 2)
     assert largest_empty_square(scout.map(), whole(scout)) == 6
 
 
+def test_roads_and_rivers_are_not_empty():
+    scout = Scout(9, 9)
+    for y in range(9):
+        scout.terrain(4, y, ROAD_ICN)
+    assert largest_empty_square(scout.map(), whole(scout)) == 4
+
+
+def test_terrain_decorations_are_objects():
+    # Cracks, holes and flowers sit on the terrain layer but read as objects (sheet 07's "empty" square had one).
+    scout = Scout(9, 9).terrain(4, 4, DIRT_DECOR_ICN)
+    m = scout.map()
+    assert m.occupied[4, 4]
+    assert largest_empty_square(m, whole(scout)) == 4
+
+
 def test_empty_square_only_counts_inside_the_window():
-    scout = Scout(10, 10)
-    for y in range(10):
-        for x in range(5, 10):
-            scout.add(x, y, sprite=x * 10 + y)
+    scout = fill_except(Scout(10, 10), [(0, 0, 5, 10)])
     m = scout.map()
     assert largest_empty_square(m, Window(0, 0, 10, 10)) == 5
     assert largest_empty_square(m, Window(3, 0, 7, 10)) == 2
 
 
-# Repetition
+# Clumping: objects bunched together with blank patches between them
 
-def test_three_identical_objects_in_a_row_repeat():
-    scout = Scout(10, 3).add(1, 1, sprite=5).add(2, 1, sprite=5).add(3, 1, sprite=5)
-    assert largest_repeat_group(scout.map(), whole(scout)) == 3
+GRID_OF_HOLES = [(x, y, 4, 4) for x in (0, 5, 10) for y in (0, 5, 10, 15)]
+
+
+def test_blank_patches_share_counts_tiles_in_blank_three_by_three_patches():
+    assert blank_patch_share(good_scout().map(), Window(0, 0, 14, 22)) == 0
+    clumped = fill_except(Scout(14, 22), GRID_OF_HOLES)
+    assert blank_patch_share(clumped.map(), Window(0, 0, 14, 22)) == 12 * 16 / 308
+
+
+def test_many_small_blank_patches_are_clumped():
+    clumped = fill_except(Scout(14, 22), GRID_OF_HOLES)
+    verdict = check(clumped.map(), whole(clumped))
+    assert "empty" not in verdict.failures
+    assert "clumped" in verdict.failures
+
+
+def test_a_few_small_blank_patches_are_fine():
+    spread = fill_except(Scout(14, 22), GRID_OF_HOLES[:4])
+    assert blank_patch_share(spread.map(), whole(spread)) == 64 / 308
+    assert "clumped" not in check(spread.map(), whole(spread)).failures
+
+
+# Sparse views
+
+def test_fewer_than_a_fifth_of_tiles_with_objects_is_sparse():
+    sparse = Scout(10, 10)
+    for i in range(19):
+        sparse.add(i % 10, 2 * (i // 10) * 3, (TREES, MOUNTAINS, ROCK)[i % 3], TREE_ICN, sprite=i)
+    assert occupied_share(sparse.map(), whole(sparse)) == 0.19
+    assert "sparse" in check(sparse.map(), whole(sparse)).failures
+    sparse.add(5, 9, ROCK, ROCK_ICN, sprite=99)
+    assert "sparse" not in check(sparse.map(), whole(sparse)).failures
+
+
+# Repetition: identical objects in a regular arrangement
+
+@pytest.mark.parametrize("step", [(1, 0), (0, 1), (1, 1), (1, -1)])
+def test_three_identical_objects_in_a_line_repeat(step):
+    scout = Scout(10, 10)
+    for i in range(3):
+        scout.add(4 + i * step[0], 4 + i * step[1], sprite=5)
+    assert len(regular_patterns(scout.map(), whole(scout))) == 1
     assert "repetition" in check(scout.map(), whole(scout)).failures
 
 
-def test_repeat_group_lists_the_linked_objects():
-    m = Scout(10, 3).add(1, 1, sprite=5).add(2, 1, sprite=5).add(3, 1, sprite=5).add(6, 1, sprite=5).map()
-    group = repeat_group(m, Window(0, 0, 10, 3))
-    assert sorted(int(m.x0[i]) for i in group) == [1, 2, 3]
+def test_a_row_of_identical_mountains_repeats():
+    row = Scout(12, 4)
+    for x in (0, 3, 6):
+        row.add(x, 1, MOUNTAINS, MOUNTAIN_ICN, sprite=2, size=(3, 2))
+    assert regular_patterns(row.map(), whole(row))
+    varied = Scout(12, 4)
+    for x, sprite in ((0, 2), (3, 3), (6, 2)):
+        varied.add(x, 1, MOUNTAINS, MOUNTAIN_ICN, sprite=sprite, size=(3, 2))
+    assert not regular_patterns(varied.map(), whole(varied))
+
+
+def test_a_block_of_identical_resource_piles_repeats():
+    scout = Scout(6, 6).add(1, 1, sprite=7).add(2, 1, sprite=7).add(1, 2, sprite=7).add(2, 2, sprite=7)
+    assert regular_patterns(scout.map(), whole(scout))
 
 
 def test_a_pair_of_identical_objects_is_allowed():
     scout = Scout(10, 3).add(1, 1, sprite=5).add(2, 1, sprite=5).add(3, 1, sprite=6)
-    assert largest_repeat_group(scout.map(), whole(scout)) == 2
+    assert not regular_patterns(scout.map(), whole(scout))
 
 
-def test_diagonal_neighbours_link():
-    scout = Scout(10, 4).add(1, 0, sprite=5).add(2, 1, sprite=5).add(3, 2, sprite=5)
-    assert largest_repeat_group(scout.map(), whole(scout)) == 3
+def test_identical_objects_in_an_irregular_cluster_are_allowed():
+    # Like sheet 13-16: forests and ranges of one sprite whose outline is not a row or block.
+    scout = Scout(6, 6)
+    for x, y in ((0, 0), (1, 0), (0, 1), (2, 1), (1, 2)):
+        scout.add(x, y, sprite=5)
+    assert not regular_patterns(scout.map(), whole(scout))
+    zigzag = Scout(6, 6).add(2, 1, sprite=5).add(1, 2, sprite=5).add(2, 3, sprite=5)
+    assert not regular_patterns(zigzag.map(), whole(zigzag))
 
 
-def test_identical_objects_with_a_gap_do_not_link():
-    # The user chose adjacency only: a one-tile gap separates objects.
+def test_overlapping_identical_objects_blend_rather_than_repeat():
+    # Sheet 14: big trees stepping two tiles right and one down overlap into one forest.
+    scout = Scout(12, 8)
+    for i in range(3):
+        scout.add(2 * i, i, sprite=3, size=(3, 3))
+    assert not regular_patterns(scout.map(), whole(scout))
+
+
+def test_identical_objects_with_a_gap_do_not_form_a_row():
     scout = Scout(10, 3).add(0, 1, sprite=5).add(2, 1, sprite=5).add(4, 1, sprite=5)
-    assert largest_repeat_group(scout.map(), whole(scout)) == 1
-
-
-def test_multi_tile_objects_repeat_as_whole_objects():
-    row = Scout(12, 4)
-    for x in (0, 3, 6):
-        row.add(x, 1, MOUNTAINS, MOUNTAIN_ICN, sprite=2, size=(3, 2))
-    assert largest_repeat_group(row.map(), whole(row)) == 3
-    varied = Scout(12, 4)
-    for x, sprite in ((0, 2), (3, 3), (6, 2)):
-        varied.add(x, 1, MOUNTAINS, MOUNTAIN_ICN, sprite=sprite, size=(3, 2))
-    assert largest_repeat_group(varied.map(), whole(varied)) == 1
+    assert not regular_patterns(scout.map(), whole(scout))
 
 
 def test_same_sprites_in_another_icn_are_different_objects():
     scout = Scout(10, 3).add(1, 1, sprite=5).add(2, 1, TREES, ROCK_ICN, sprite=5).add(3, 1, sprite=5)
-    assert largest_repeat_group(scout.map(), whole(scout)) == 1
+    assert not regular_patterns(scout.map(), whole(scout))
 
 
 def test_a_varied_forest_passes():
@@ -187,20 +260,20 @@ def test_a_varied_forest_passes():
     for y in range(22):
         for x in range(14):
             scout.add(x, y, sprite=(x + 2 * y) % 5)
-    assert largest_repeat_group(scout.map(), whole(scout)) == 1
+    assert not regular_patterns(scout.map(), whole(scout))
 
 
-def test_a_forest_of_one_tree_fails():
+def test_a_forest_planted_in_a_grid_fails():
     scout = Scout(14, 22)
     for y in range(0, 22, 2):
         for x in range(0, 14, 2):
             scout.add(x, y, sprite=1, size=(2, 2))
-    assert largest_repeat_group(scout.map(), whole(scout)) > 2
+    assert "repetition" in check(scout.map(), whole(scout)).failures
 
 
 def test_repetition_only_counts_objects_in_the_window():
     scout = Scout(10, 3).add(1, 1, sprite=5).add(2, 1, sprite=5).add(3, 1, sprite=5)
-    assert largest_repeat_group(scout.map(), Window(2, 0, 8, 3)) == 2
+    assert not regular_patterns(scout.map(), Window(2, 0, 8, 3))
 
 
 # Object types
@@ -298,7 +371,8 @@ def random_scout(seed: int) -> Scout:
     rng = random.Random(seed)
     scout = Scout(30, 34)
     scout.water(0, 0, rng.randrange(1, 10), rng.randrange(1, 10))
-    for _ in range(170):
+    # Density varies with the seed so that the sparse and clumped rules go both ways.
+    for _ in range(90 + 40 * (seed % 4)):
         w, h = rng.choice([(1, 1), (1, 1), (2, 1), (2, 2), (3, 2)])
         x, y = rng.randrange(30 - w + 1), rng.randrange(34 - h + 1)
         if any(scout.tile(x + dx, y + dy)["occupied"] for dx in range(w) for dy in range(h)):
@@ -306,6 +380,10 @@ def random_scout(seed: int) -> Scout:
         # Mostly trees, from a pool of 2-4 types, so the type rules pass and fail across the map.
         kind = TREES if rng.random() < 0.6 else rng.choice([MOUNTAINS, ROCK, LAKE][:1 + seed % 3])
         scout.add(x, y, kind, TREE_ICN, sprite=rng.randrange(4), size=(w, h), animated=rng.random() < 0.05)
+    road = rng.randrange(30)
+    for y in range(34):
+        if not scout.tile(road, y)["occupied"]:
+            scout.terrain(road, y, ROAD_ICN)
     return scout
 
 

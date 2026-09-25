@@ -20,8 +20,13 @@ import numpy as np
 TILE = 32
 
 # The rules. Each is a hard limit; a window that misses any one is never used.
-MAX_EMPTY_SQUARE = 4  # tiles; a 5x5 patch with no object reads as empty space
-MAX_REPEAT_GROUP = 2  # identical objects touching each other, a pair is fine
+# A tile is blank when it has no object, road or river and its terrain matches all 8 neighbours;
+# tiles along a border between terrains are not blank.
+MAX_EMPTY_SQUARE = 4  # tiles; a blank 5x5 square reads as empty space
+# Share of the view in blank 3x3 patches: views whose objects bunch up between blank gaps fail.
+BLANK_PATCH = 3
+MAX_BLANK_PATCH_SHARE = 0.3
+MIN_OCCUPIED_SHARE = 0.2  # of the view's tiles holding an object
 MAX_TYPE_SHARE = 0.6  # of the occupied tiles, for the most common MP2 object type
 MIN_TYPES = 3
 MIN_ANIMATED_OBJECTS = 2
@@ -29,14 +34,17 @@ MIN_ANIMATED_TERRAIN = 4  # tiles of water or lava, which shimmer through palett
 # Share of 32x32 tiles in a rendered still that exactly duplicate another; the median view has 25%.
 MAX_DUPLICATE_TILES = 0.4
 
-RULES = ("empty", "repetition", "monoculture", "few types", "no animation")
+RULES = ("empty", "clumped", "sparse", "repetition", "monoculture", "few types", "no animation")
 
 GROUNDS = ("unknown", "water", "grass", "snow", "swamp", "lava", "desert", "dirt", "wasteland", "beach")
 ANIMATED_GROUNDS = (GROUNDS.index("water"), GROUNDS.index("lava"))
-OBJECT_LAYER, BACKGROUND_LAYER = 0, 1
+OBJECT_LAYER, BACKGROUND_LAYER, TERRAIN_LAYER = 0, 1, 3
+# Terrain-layer sprites that run along the ground (roads, rivers); other terrain-layer sprites are
+# small objects such as cracks, holes and flowers.
+LINE_ICNS = (30, 45)
 OBJ_NONE, OBJ_COAST = 0, 28
 # Bump when the cached form of scouted maps changes.
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 
 def _base_type(object_type: int) -> int:
@@ -82,6 +90,7 @@ class ScoutedMap:
     width: int
     height: int
     occupied: np.ndarray  # (height, width) bool
+    blank: np.ndarray  # (height, width) bool
     ground: np.ndarray  # (height, width) index into GROUNDS
     kind: np.ndarray  # (height, width) base MP2 object type; 0 empty, -1 occupied by an unknown type
     # One entry per object (parts sharing a uid). Signature -1: nothing solid, e.g. a water ripple.
@@ -91,11 +100,21 @@ class ScoutedMap:
     x1: np.ndarray
     y1: np.ndarray
     animated: np.ndarray
-    links: np.ndarray = field(default=None)  # (n, 2) pairs of touching identical objects
+    # Identical objects in a regular arrangement: (n, 3) touching rows at equal steps, (n, 4) 2x2 blocks.
+    lines: np.ndarray = field(default=None)
+    blocks: np.ndarray = field(default=None)
+    # Tiles that lie in some blank 3x3 patch.
+    in_blank_patch: np.ndarray = field(default=None)
 
     def __post_init__(self):
-        if self.links is None:
-            self.links = _find_links(self)
+        if self.lines is None:
+            self.lines, self.blocks = _find_patterns(self)
+        if self.in_blank_patch is None:
+            patches = np.zeros((self.height + 2 * (BLANK_PATCH - 1), self.width + 2 * (BLANK_PATCH - 1)), bool)
+            if self.height >= BLANK_PATCH and self.width >= BLANK_PATCH:
+                patches[BLANK_PATCH - 1:self.height, BLANK_PATCH - 1:self.width] = (
+                    _box_sums(self.blank, BLANK_PATCH, BLANK_PATCH) == BLANK_PATCH ** 2)
+            self.in_blank_patch = _box_sums(patches, BLANK_PATCH, BLANK_PATCH)[:self.height, :self.width] > 0
 
 
 def window_tiles(width_px: int, height_px: int) -> tuple[int, int]:
@@ -106,25 +125,42 @@ def window_tiles(width_px: int, height_px: int) -> tuple[int, int]:
 def load_map(scout: dict) -> ScoutedMap:
     width, height, tiles = scout["width"], scout["height"], scout["tiles"]
     occupied = np.zeros(width * height, bool)
+    lined = np.zeros(width * height, bool)
     ground = np.zeros(width * height, np.int8)
     kind = np.zeros(width * height, np.int16)
     objects: dict = defaultdict(lambda: {"solid": set(), "tiles": [], "solid_tiles": [], "animated": False})
     for index, tile in enumerate(tiles):
-        occupied[index] = tile["occupied"]
         ground[index] = GROUNDS.index(tile["ground"]) if tile["ground"] in GROUNDS else 0
         solid_types = []
+        decorated = False
         for n, (uid, icn, sprite, layer, animated, part_type) in enumerate(tile["parts"]):
             obj = objects[uid if uid else ("tile", index, n)]
             obj["tiles"].append(index)
             obj["animated"] |= bool(animated)
-            if layer in (OBJECT_LAYER, BACKGROUND_LAYER):
+            is_decoration = layer == TERRAIN_LAYER and icn not in LINE_ICNS
+            lined[index] |= layer == TERRAIN_LAYER and icn in LINE_ICNS
+            decorated |= is_decoration
+            if layer in (OBJECT_LAYER, BACKGROUND_LAYER) or is_decoration:
                 obj["solid"].add((icn, sprite))
                 obj["solid_tiles"].append(index)
                 if part_type != OBJ_NONE:
                     solid_types.append(_base_type(part_type))
+        occupied[index] = tile["occupied"] or decorated
         if tile["occupied"]:
             main = _base_type(tile["object"])
             kind[index] = main if main not in (OBJ_NONE, OBJ_COAST) else (solid_types[0] if solid_types else -1)
+        elif decorated:
+            kind[index] = -1
+
+    ground_grid = ground.reshape(height, width)
+    padded = np.full((height + 2, width + 2), -1, np.int16)
+    padded[1:-1, 1:-1] = ground_grid
+    uniform = np.ones((height, width), bool)
+    for dy in (0, 1, 2):
+        for dx in (0, 1, 2):
+            near = padded[dy:dy + height, dx:dx + width]
+            uniform &= (near == ground_grid) | (near == -1)
+    blank = uniform & ~occupied.reshape(height, width) & ~lined.reshape(height, width)
 
     signatures: dict = {}
     rows = []
@@ -136,28 +172,50 @@ def load_map(scout: dict) -> ScoutedMap:
     columns = np.array(rows, dtype=np.int64).reshape(-1, 6).T
     return ScoutedMap(
         path=scout["map"], width=width, height=height,
-        occupied=occupied.reshape(height, width), ground=ground.reshape(height, width), kind=kind.reshape(height, width),
+        occupied=occupied.reshape(height, width), blank=blank, ground=ground_grid, kind=kind.reshape(height, width),
         signature=columns[0].astype(np.int32), x0=columns[1].astype(np.int16), y0=columns[2].astype(np.int16),
         x1=columns[3].astype(np.int16), y1=columns[4].astype(np.int16), animated=columns[5].astype(bool),
     )
 
 
-def _find_links(m: ScoutedMap) -> np.ndarray:
-    """Pairs of objects with the same sprites whose tiles touch, diagonals included."""
-    links = []
+def _find_patterns(m: ScoutedMap) -> tuple[np.ndarray, np.ndarray]:
+    """Identical objects in a row or block: three touching, non-overlapping ones at equal steps, or four as a 2x2 block.
+
+    Identical objects have the same shape, so one step between their top left tiles moves the whole
+    object. Irregular clusters, such as most forests and mountain ranges, have neither.
+    """
+    lines, blocks = set(), set()
     order = np.argsort(m.signature, kind="stable")
     signatures = m.signature[order]
     starts = np.flatnonzero(np.diff(signatures, prepend=-2))
     for start, end in zip(starts, list(starts[1:]) + [len(order)]):
         group = order[start:end]
-        if signatures[start] < 0 or len(group) < 2:
+        if signatures[start] < 0 or len(group) < 3:
             continue
         x0, y0, x1, y1 = (a[group].astype(np.int32) for a in (m.x0, m.y0, m.x1, m.y1))
         touch = ((x0[:, None] <= x1[None, :] + 1) & (x0[None, :] <= x1[:, None] + 1)
                  & (y0[:, None] <= y1[None, :] + 1) & (y0[None, :] <= y1[:, None] + 1))
-        a, b = np.nonzero(np.triu(touch, 1))
-        links.append(np.stack([group[a], group[b]], axis=1))
-    return np.concatenate(links) if links else np.zeros((0, 2), np.int64)
+        np.fill_diagonal(touch, False)
+        at = {(int(x), int(y)): int(i) for x, y, i in zip(x0, y0, group)}
+        steps = defaultdict(list)
+        for a, b in zip(*np.nonzero(touch)):
+            steps[int(group[a])].append((int(x0[b] - x0[a]), int(y0[b] - y0[a])))
+        # Overlapping copies blend into one mass (a forest), so only steps that clear the object count.
+        w, h = int(x1[0] - x0[0]) + 1, int(y1[0] - y0[0]) + 1
+        for i, x, y in zip(group, x0, y0):
+            i, x, y = int(i), int(x), int(y)
+            steps[i] = [(dx, dy) for dx, dy in steps[i] if abs(dx) >= w or abs(dy) >= h]
+            for dx, dy in steps[i]:
+                c = at.get((x + 2 * dx, y + 2 * dy))
+                if c is not None:
+                    b = at[(x + dx, y + dy)]
+                    lines.add((min(i, c), b, max(i, c)))
+            for dx, _ in (st for st in steps[i] if st[1] == 0 and st[0] > 0):
+                for _, dy in (st for st in steps[i] if st[0] == 0 and st[1] > 0):
+                    d = at.get((x + dx, y + dy))
+                    if d is not None:
+                        blocks.add((i, at[(x + dx, y)], at[(x, y + dy)], d))
+    return (np.array(sorted(lines), np.int64).reshape(-1, 3), np.array(sorted(blocks), np.int64).reshape(-1, 4))
 
 
 def _present(m: ScoutedMap, win: Window) -> np.ndarray:
@@ -169,8 +227,8 @@ def _area(grid: np.ndarray, win: Window) -> np.ndarray:
 
 
 def empty_square(m: ScoutedMap, win: Window) -> tuple[int, int, int]:
-    """Side and top left tile (relative to the window) of the largest square without objects."""
-    empty = ~_area(m.occupied, win)
+    """Side and top left tile (relative to the window) of the largest blank square."""
+    empty = _area(m.blank, win)
     size = np.zeros((empty.shape[0] + 1, empty.shape[1] + 1), np.int32)
     for y in range(empty.shape[0]):
         for x in range(empty.shape[1]):
@@ -185,28 +243,18 @@ def largest_empty_square(m: ScoutedMap, win: Window) -> int:
     return empty_square(m, win)[0]
 
 
-def repeat_group(m: ScoutedMap, win: Window) -> list[int]:
-    """The largest set of identical objects in the window linked by touching."""
-    present = _present(m, win) & (m.signature >= 0)
-    parent = {int(i): int(i) for i in np.flatnonzero(present)}
-
-    def root(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    for a, b in m.links:
-        if present[a] and present[b]:
-            parent[root(int(a))] = root(int(b))
-    groups = defaultdict(list)
-    for i in parent:
-        groups[root(i)].append(i)
-    return max(groups.values(), key=len, default=[])
+def blank_patch_share(m: ScoutedMap, win: Window) -> float:
+    return float(_area(m.in_blank_patch, win).mean())
 
 
-def largest_repeat_group(m: ScoutedMap, win: Window) -> int:
-    return len(repeat_group(m, win))
+def occupied_share(m: ScoutedMap, win: Window) -> float:
+    return float(_area(m.occupied, win).mean())
+
+
+def regular_patterns(m: ScoutedMap, win: Window) -> list[tuple[int, ...]]:
+    """Rows and blocks of identical objects that are all in the window."""
+    present = _present(m, win)
+    return [tuple(int(i) for i in p) for patterns in (m.lines, m.blocks) for p in patterns if present[p].all()]
 
 
 def type_mix(m: ScoutedMap, win: Window) -> tuple[float, int]:
@@ -237,7 +285,9 @@ def check(m: ScoutedMap, win: Window) -> Verdict:
     values = {
         "inside": True,
         "empty": largest_empty_square(m, win),
-        "repetition": largest_repeat_group(m, win),
+        "blank patches": blank_patch_share(m, win),
+        "occupied": occupied_share(m, win),
+        "repetition": len(regular_patterns(m, win)),
         "share": share,
         "types": types,
         "animated objects": animated_objects,
@@ -246,7 +296,11 @@ def check(m: ScoutedMap, win: Window) -> Verdict:
     failures = []
     if values["empty"] > MAX_EMPTY_SQUARE:
         failures.append("empty")
-    if values["repetition"] > MAX_REPEAT_GROUP:
+    if values["blank patches"] > MAX_BLANK_PATCH_SHARE + 1e-9:
+        failures.append("clumped")
+    if values["occupied"] < MIN_OCCUPIED_SHARE - 1e-9:
+        failures.append("sparse")
+    if values["repetition"]:
         failures.append("repetition")
     if share > MAX_TYPE_SHARE:
         failures.append("monoculture")
@@ -297,28 +351,26 @@ def passing_windows(m: ScoutedMap, w: int, h: int) -> dict[str, np.ndarray]:
     grids = {}
     side = MAX_EMPTY_SQUARE + 1
     if w >= side and h >= side:
-        empty_blocks = _box_sums(m.occupied, side, side) == 0
+        empty_blocks = _box_sums(m.blank, side, side) == side * side
         grids["empty"] = _box_sums(empty_blocks, w - side + 1, h - side + 1) == 0
     else:
         grids["empty"] = np.ones(shape, bool)
 
-    # Any group of three or more contains a chain a-b-c; a window fails if it meets all three objects.
+    grids["clumped"] = _box_sums(m.in_blank_patch, w, h) <= MAX_BLANK_PATCH_SHARE * w * h + 1e-9
+    occupied = _box_sums(m.occupied, w, h)
+    grids["sparse"] = occupied >= MIN_OCCUPIED_SHARE * w * h - 1e-9
+
+    # A window fails if it meets every object of some row or block.
     wy0, wy1 = _window_range(m.y0.astype(np.int32), m.y1.astype(np.int32), h, shape[0])
     wx0, wx1 = _window_range(m.x0.astype(np.int32), m.x1.astype(np.int32), w, shape[1])
-    neighbours = defaultdict(list)
-    for a, b in m.links:
-        neighbours[a].append(b)
-        neighbours[b].append(a)
-    chains = [(a, b, c) for b, near in neighbours.items() for i, a in enumerate(near) for c in near[i + 1:]]
-    if chains:
-        a, b, c = np.array(chains).T
-        repeats = _count_rects(np.maximum.reduce([wy0[a], wy0[b], wy0[c]]), np.minimum.reduce([wy1[a], wy1[b], wy1[c]]),
-                               np.maximum.reduce([wx0[a], wx0[b], wx0[c]]), np.minimum.reduce([wx1[a], wx1[b], wx1[c]]), shape)
-        grids["repetition"] = repeats == 0
-    else:
-        grids["repetition"] = np.ones(shape, bool)
+    repeats = np.zeros(shape, np.int32)
+    for patterns in (m.lines, m.blocks):
+        if len(patterns):
+            members = patterns.T
+            repeats += _count_rects(np.max(wy0[members], axis=0), np.min(wy1[members], axis=0),
+                                    np.max(wx0[members], axis=0), np.min(wx1[members], axis=0), shape)
+    grids["repetition"] = repeats == 0
 
-    occupied = _box_sums(m.occupied, w, h)
     most, types = np.zeros(shape, np.int32), np.zeros(shape, np.int32)
     for kind in np.unique(m.kind[m.kind > 0]):
         count = _box_sums(m.kind == kind, w, h)
