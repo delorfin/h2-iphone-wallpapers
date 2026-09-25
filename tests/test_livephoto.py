@@ -21,7 +21,7 @@ def tags(path: Path) -> dict:
 @pytest.fixture
 def pair(frames_dir, tmp_path):
     clip = tmp_path / "clip.mov"
-    make_clip(frames_dir, clip, brightness=70)
+    make_clip(frames_dir, clip, brightness=70, scale=3, direction=(1, 0))
     out = tmp_path / "live"
     out.mkdir()
     return make_live_photo(clip, out, "H2_000", datetime(1996, 1, 1, 0, 5))
@@ -37,10 +37,11 @@ def test_still_and_video_share_one_content_identifier(pair):
     assert tags(heic)["MakerNotes:ContentIdentifier"] == tags(mov)["QuickTime:ContentIdentifier"]
 
 
-def test_track_layout_matches_the_proven_golive_output(pair):
+def test_video_carries_the_clip_and_the_base_metadata_tracks_only(pair):
+    # goLive also keeps the base's own camera video; the phone accepts the file without it (test B).
     _, mov = pair
     streams = probe(mov)["streams"]
-    assert [s["codec_type"] for s in streams] == ["video", "video", "data", "data"]
+    assert [s["codec_type"] for s in streams] == ["video", "data", "data"]
     clip_track = streams[0]
     assert (clip_track["width"], clip_track["height"]) == (1080, 1920)
     assert clip_track["codec_tag_string"] == "hvc1"
@@ -62,3 +63,27 @@ def test_capture_date_is_the_requested_one(pair):
 def test_no_location_is_written(pair):
     for path in pair:
         assert not [k for k in tags(path) if "GPS" in k or "Location" in k], path
+
+
+def test_pair_stays_small(pair):
+    assert sum(path.stat().st_size for path in pair) < 4_000_000
+
+
+def test_video_is_tagged_bt709(pair):
+    _, mov = pair
+    video = probe(mov)["streams"][0]
+    assert (video["color_space"], video["color_primaries"], video["color_transfer"]) == ("bt709", "bt709", "bt709")
+
+
+def test_still_matches_the_video_frame_it_settles_on(pair, tmp_path):
+    # iOS crossfades from the video to the still; any colour mismatch shows as a flash.
+    # Decode the video with BT.709, as an iPhone does for HD video.
+    heic, mov = pair
+    still, frame = tmp_path / "still.png", tmp_path / "frame.png"
+    subprocess.run(["magick", str(heic), str(still)], check=True)
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-ss", "0.5", "-i", str(mov), "-map", "0:v:0", "-frames:v", "1",
+                    "-vf", "scale=in_color_matrix=bt709:in_range=tv,format=rgb24", str(frame)], check=True)
+    result = subprocess.run(["magick", "compare", "-metric", "MAE", str(still), str(frame), "null:"],
+                            capture_output=True, text=True)
+    normalized = float(result.stderr.split("(")[1].split(")")[0])
+    assert normalized < 0.004

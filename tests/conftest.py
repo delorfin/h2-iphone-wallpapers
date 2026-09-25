@@ -21,14 +21,35 @@ def mean_luma(path: Path) -> float:
     return sum(gray) / len(gray)
 
 
-@pytest.fixture
-def frames_dir(tmp_path: Path) -> Path:
-    """Eight 360x640 frames shaped like one renderer view (scale 3)."""
-    view = tmp_path / "000"
+def gray_frame(path: Path, index: int) -> tuple[int, int, bytes]:
+    """Width, height and 8-bit gray pixels of video frame `index` (first video track)."""
+    info = probe(path)["streams"][0]
+    width, height = info["width"], info["height"]
+    gray = subprocess.run(
+        ["ffmpeg", "-loglevel", "error", "-i", str(path), "-map", "0:v:0", "-vf", f"select=eq(n\\,{index})",
+         "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+        check=True, capture_output=True,
+    ).stdout
+    return width, height, gray
+
+
+def write_frames(view: Path, source: str) -> Path:
+    """Forty frames at 420x700, shaped like one renderer view at scale 3 with the pan margin."""
     view.mkdir()
     subprocess.run(
-        ["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=360x640:r=8", "-frames:v", "8",
+        ["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", source, "-frames:v", "40",
          "-start_number", "0", str(view / "f%02d.bmp")],
         check=True,
     )
     return view
+
+
+@pytest.fixture
+def frames_dir(tmp_path: Path) -> Path:
+    return write_frames(tmp_path / "000", "testsrc2=s=420x700:r=40")
+
+
+@pytest.fixture
+def still_frames_dir(tmp_path: Path) -> Path:
+    """A view whose content never changes, so any movement in the clip is the pan."""
+    return write_frames(tmp_path / "still", "testsrc2=s=420x700:r=40,loop=loop=-1:size=1")

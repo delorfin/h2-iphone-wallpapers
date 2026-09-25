@@ -2,19 +2,22 @@
 
 import argparse
 import os
+import random
 import subprocess
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from h2live.clip import make_clip
+from h2live.clip import DIRECTIONS, make_clip, view_size
 from h2live.livephoto import make_live_photo
 from h2live.photos import import_pairs
 
 REPO = Path(__file__).resolve().parents[2]
 # Non-bundle macOS builds only look in ~/.fheroes2 unless told otherwise.
 GAME_DATA = Path.home() / "Library/Application Support/fheroes2"
-STEPS_PER_SECOND = 8
+# iOS plays about 0.2 s of the clip over about 2 s on the lock screen; at 40 steps per second
+# that looks like the game's own speed (one step per 250 ms).
+STEPS_PER_SECOND = 40
 # Keeps every batch together on one day of the Photos and Google Photos timelines, away from real photos.
 # Noon keeps all items on that day in any timezone.
 FIRST_CAPTURE = datetime(1996, 1, 1, 12)
@@ -42,8 +45,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     frames, clips, live = args.out / "frames", args.out / "clips", args.out / "live"
+    width, height = view_size(args.scale)
     rendered = subprocess.run(
-        [str(args.renderer), "--render-wallpapers", str(frames), str(args.count), str(args.scale), str(STEPS_PER_SECOND)],
+        [str(args.renderer), "--render-wallpapers", str(frames), str(args.count), str(width), str(height),
+         str(STEPS_PER_SECOND)],
         env={**os.environ, "FHEROES2_DATA": str(GAME_DATA)},
     )
     if rendered.returncode != 0:
@@ -55,9 +60,10 @@ def main(argv: list[str] | None = None) -> int:
     pairs = []
     for i, view in enumerate(sorted(p for p in frames.iterdir() if p.is_dir())):
         clip = clips / f"{view.name}.mov"
-        make_clip(view, clip, args.brightness, STEPS_PER_SECOND)
+        direction = random.choice(DIRECTIONS)
+        make_clip(view, clip, args.brightness, args.scale, direction, STEPS_PER_SECOND)
         pairs.append(make_live_photo(clip, live, f"H2_{view.name}", FIRST_CAPTURE + timedelta(minutes=i)))
-        print(f"{i + 1}/{args.count} {(view / 'map.txt').read_text().strip()}")
+        print(f"{i + 1}/{args.count} pan {direction} {(view / 'map.txt').read_text().strip()}")
 
     if args.no_import:
         print(f"Built {len(pairs)} Live Photos in {live}")

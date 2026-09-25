@@ -1,9 +1,10 @@
 """Turns a clip into a Live Photo pair that iOS accepts as a lock screen wallpaper.
 
 Follows goLive (https://github.com/code-path/goLive, Apache-2.0): the clip's video
-track is muxed with every track of a real camera Live Photo (base/base.mov), and
-the camera photo's tags are copied onto the new still and video. Hand-built
-metadata gets rejected by the wallpaper picker.
+track is muxed with the timed metadata tracks of a real camera Live Photo
+(base/base.mov), and the camera photo's tags are copied onto the new still and
+video. Hand-built metadata gets rejected by the wallpaper picker. goLive also keeps
+the base's own video track; the phone accepts the file without it, which saves ~3 MB.
 """
 
 import subprocess
@@ -30,14 +31,12 @@ def make_live_photo(clip: Path, out_dir: Path, name: str, captured: datetime, ba
         raw = tmp / "clip.hevc"
         _run("MP4Box", "-raw", "1", clip, "-out", raw)
         mov.unlink(missing_ok=True)
-        _run("MP4Box", "-add", raw, "-add", base_mov, "-new", mov)
+        # Tracks 2 and 3 of base.mov are its live-photo-info and still-image-time metadata.
+        _run("MP4Box", "-add", raw, "-add", f"{base_mov}#2", "-add", f"{base_mov}#3", "-new", mov)
 
         still = tmp / "still.png"
         _run("ffmpeg", "-loglevel", "error", "-y", "-ss", "0.5", "-i", mov, "-map", "0:v:0", "-frames:v", "1", still)
-        icc = tmp / "base.icc"
-        icc.write_bytes(_run("exiftool", "-icc_profile", "-b", base_heic))
-        profile = ["-profile", icc] if icc.stat().st_size else []
-        _run("magick", still, "-depth", "10", "-quality", "100", "-define", "heic:lossless=true", *profile, heic)
+        _run("magick", still, "-quality", "85", heic)
 
     for target, source in ((mov, base_mov), (heic, base_heic)):
         _run("exiftool", "-ee3", "-TagsFromFile", source, "-all:all", target, "-overwrite_original", "-m", "-F")
