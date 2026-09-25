@@ -23,6 +23,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "pillow" },
     { name = "pytest" },
 ]
 
@@ -34,7 +35,10 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8" }]
+dev = [
+    { name = "pillow", specifier = ">=12.3.0" },
+    { name = "pytest", specifier = ">=8" },
+]
 
 [[package]]
 name = "iniconfig"

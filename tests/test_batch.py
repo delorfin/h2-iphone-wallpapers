@@ -33,3 +33,45 @@ def test_renderer_failure_stops_the_batch(tmp_path):
     failing.write_text("#!/bin/sh\nexit 3\n")
     failing.chmod(0o755)
     assert main(["--out", str(tmp_path / "batch"), "--count", "1", "--no-import", "--renderer", str(failing)]) != 0
+
+
+def fake_renderer_with(tmp_path: Path, maps: str) -> str:
+    wrapper = tmp_path / "renderer"
+    wrapper.write_text(f"#!/bin/sh\nFAKE_MAPS={maps} exec {sys.executable} {FAKE} \"$@\"\n")
+    wrapper.chmod(0o755)
+    return str(wrapper)
+
+
+def run(tmp_path: Path, count: int, maps: str = "good") -> int:
+    return main(["--out", str(tmp_path / "batch"), "--count", str(count), "--no-import",
+                 "--renderer", fake_renderer_with(tmp_path, maps), "--scout-cache", str(tmp_path / "cache")])
+
+
+def test_renders_only_views_that_pass_the_rules_and_the_still_check(tmp_path):
+    # dull.mp2 passes the map rules but renders flat, so the still check must turn it away.
+    assert run(tmp_path, 2) == 0
+    frames = tmp_path / "batch/frames"
+    assert sorted((d / "map.txt").read_text().strip() for d in frames.iterdir()) == ["a.mp2", "b.mp2"]
+    assert all((d / "view.txt").read_text().split() == ["0", "0"] for d in frames.iterdir())
+
+
+def test_stops_with_a_message_when_too_few_views_pass(tmp_path, capsys):
+    assert run(tmp_path, 3) != 0
+    assert "2 of 3" in capsys.readouterr().err
+    assert not (tmp_path / "batch/live").exists()
+
+
+def test_stops_when_no_map_has_a_good_view(tmp_path, capsys):
+    assert run(tmp_path, 1, maps="empty") != 0
+    assert "0 of 1" in capsys.readouterr().err
+
+
+def test_scouting_is_cached_per_renderer_build(tmp_path):
+    assert run(tmp_path, 1) == 0
+    assert len(list((tmp_path / "cache").glob("*.pickle"))) == 1
+
+
+def test_default_scout_cache_follows_the_environment(tmp_path, scout_cache):
+    out = tmp_path / "batch"
+    assert main(["--out", str(out), "--count", "1", "--no-import", "--renderer", fake_renderer(tmp_path)]) == 0
+    assert len(list(scout_cache.glob("*.pickle"))) == 1
