@@ -110,3 +110,34 @@ def test_objects_with_big_jumps_hold_after_the_early_gaps():
         poses[p, 5:55, 5:55] = 255 * (p % 2)  # 2500 px change every step, like windmill blades
     frames = plan_frames(poses, seed=0)
     assert all(f <= 25 for f in range(18, 31) if (frames[f] != frames[f - 1]).any())
+
+
+def palette_poses(indices: np.ndarray) -> np.ndarray:
+    """RGB poses from palette indices, with a distinct colour per index."""
+    palette = np.stack([np.arange(256), (np.arange(256) * 7) % 256, (np.arange(256) * 13) % 256], axis=1).astype(np.uint8)
+    return palette[indices]
+
+
+def test_water_colour_cycling_keeps_shimmering_to_the_end():
+    # A 60x60 lake whose water pixels rotate through the palette's water colours every step: 3600
+    # changed pixels per step, but it's colour cycling, not a big sprite jump, so it must not freeze.
+    indices = np.zeros((POSES, 60, 60), np.uint8)
+    for p in range(POSES):
+        indices[p] = 231 + (np.arange(60)[None, :] + p) % 5
+    frames = plan_frames(palette_poses(indices), seed=0, indices=indices)
+    assert any((frames[f] != frames[f - 1]).any() for f in range(26, 31))
+
+
+def test_water_does_not_merge_objects_on_it_into_one():
+    # Two small toggling sprites sitting in a cycling lake must keep independent phases.
+    indices = np.zeros((POSES, 40, 200), np.uint8)
+    for p in range(POSES):
+        indices[p] = 231 + p % 5
+        for x in range(10, 190, 20):
+            indices[p, 15:21, x:x + 6] = 10 + p % 2
+    rgb = palette_poses(indices)
+    frames = plan_frames(rgb, seed=1, indices=indices)
+    sprite_rows = slice(15, 21)
+    changed = [f for f in range(18, 31)
+               if (frames[f][sprite_rows] != frames[f - 1][sprite_rows]).any(axis=2).sum() > 0]
+    assert len(changed) >= 10

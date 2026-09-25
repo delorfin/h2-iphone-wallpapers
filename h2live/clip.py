@@ -38,6 +38,9 @@ BIG_JUMP_HOLD_FROM = SHOWN_AT[25]
 # Pixels (map resolution) an object changes per step above which it counts as a big jump. Windmills
 # measure 1300-1850 and whirlpools 1150-1320; boats, flags and units stay well below.
 BIG_JUMP_PX = 1000
+# Palette entries the game rotates to animate water, lava and treasure glints (PAL::GetCyclingPalette).
+CYCLING = np.zeros(256, bool)
+CYCLING[[*range(214, 222), *range(231, 236), *range(238, 242)]] = True
 
 
 def view_size(scale: int) -> tuple[int, int]:
@@ -56,24 +59,32 @@ def pose_schedule(phase: float, gated: bool) -> list[int]:
     return schedule
 
 
-def plan_frames(poses: np.ndarray, seed: int) -> np.ndarray:
-    """Composes the 60 video frames (map resolution) from the game poses, object by object."""
-    changing = np.zeros(poses.shape[1:3], bool)
-    for a, b in zip(poses, poses[1:]):
-        changing |= (a != b).any(axis=2)
+def plan_frames(poses: np.ndarray, seed: int, indices: np.ndarray | None = None) -> np.ndarray:
+    """Composes the 60 video frames (map resolution) from the game poses, object by object.
+
+    `indices` are the poses' palette indices, when known: pixels that only rotate between colour-cycling
+    entries (water, lava, glints) then count as shimmer, which neither merges the objects it touches into
+    one region nor counts towards a big jump.
+    """
+    changed = [(a != b).any(axis=2) for a, b in zip(poses, poses[1:])]
+    if indices is not None:
+        sprite = [c & ~(CYCLING[a] & CYCLING[b]) for c, a, b in zip(changed, indices, indices[1:])]
+    else:
+        sprite = changed
+    sprite_any = np.logical_or.reduce(sprite)
     # Grown a little so each object's changing pixels form one region.
-    objects, count = ndimage.label(ndimage.binary_dilation(changing, iterations=3))
-    step_change = [0.0] + [
-        np.mean([((a != b).any(axis=2) & (objects == i)).sum() for a, b in zip(poses, poses[1:])])
-        for i in range(1, count + 1)
-    ]
+    objects, count = ndimage.label(ndimage.binary_dilation(sprite_any, iterations=3))
+    shimmer, shimmer_count = ndimage.label(np.logical_or.reduce(changed) & (objects == 0))
+    regions = np.where(shimmer > 0, shimmer + count, objects)
+    labels = np.arange(1, count + 1)
+    step_change = np.mean([ndimage.sum(s, objects, labels) for s in sprite], axis=0) if count else np.zeros(0)
     rng = random.Random(seed)
     # Region 0 is everything that never changes; its pose doesn't matter.
-    schedules = np.array([pose_schedule(0.0, False)] + [
-        pose_schedule(rng.uniform(0, GAME_STEP), step_change[i] > BIG_JUMP_PX) for i in range(1, count + 1)
-    ])
-    rows, cols = np.indices(objects.shape)
-    return np.stack([poses[schedules[objects, frame], rows, cols] for frame in range(OUTPUT_FPS)])
+    schedules = np.array([pose_schedule(0.0, False)]
+                         + [pose_schedule(rng.uniform(0, GAME_STEP), jump > BIG_JUMP_PX) for jump in step_change]
+                         + [pose_schedule(rng.uniform(0, GAME_STEP), False) for _ in range(shimmer_count)])
+    rows, cols = np.indices(regions.shape)
+    return np.stack([poses[schedules[regions, frame], rows, cols] for frame in range(OUTPUT_FPS)])
 
 
 def _pan_start(step: int, margin: int) -> int:
@@ -90,12 +101,15 @@ def make_clip(frames_dir: Path, out: Path, brightness: int, scale: int, directio
     paths = sorted(frames_dir.glob("f*.bmp"))
     if len(paths) != POSES:
         raise ValueError(f"expected {POSES} frames in {frames_dir}, found {len(paths)}")
-    poses = np.stack([np.asarray(Image.open(p).convert("RGB")) for p in paths])
+    images = [Image.open(p) for p in paths]
+    poses = np.stack([np.asarray(image.convert("RGB")) for image in images])
+    # The renderer writes palette BMPs; their indices tell colour cycling apart from sprite changes.
+    indices = np.stack([np.asarray(image) for image in images]) if all(i.mode == "P" for i in images) else None
     expected, actual = view_size(scale), (poses.shape[2], poses.shape[1])
     if actual != expected:
         raise ValueError(f"expected {expected[0]}x{expected[1]} frames for scale {scale}, got {actual[0]}x{actual[1]}")
 
-    frames = plan_frames(poses, seed)
+    frames = plan_frames(poses, seed, indices)
     margin = OUTPUT_FPS * scale  # output pixels the view drifts over the clip
     dx, dy = direction
     x0, y0 = _pan_start(dx, margin), _pan_start(dy, margin)
