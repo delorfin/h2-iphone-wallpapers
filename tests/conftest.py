@@ -49,6 +49,8 @@ def scout_cache(tmp_path, monkeypatch) -> Path:
     """Keeps tests out of the real scout cache in ~/Library/Caches."""
     monkeypatch.setenv("H2LIVE_SCOUT_CACHE", str(tmp_path / "scout-cache"))
     monkeypatch.setenv("H2LIVE_HISTORY", str(tmp_path / "history/used-views.txt"))
+    # Keep the real bundled maps out of tests that use fake game data; a missing folder means none.
+    monkeypatch.setenv("H2LIVE_BUNDLED_MAPS", str(tmp_path.parent / f"{tmp_path.name}-no-bundled-maps"))
     return tmp_path / "scout-cache"
 
 

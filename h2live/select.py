@@ -515,10 +515,19 @@ def bmp_pixels(path: Path) -> np.ndarray:
 
 # Scouting.
 
+# fheroes2's own maps (.fh2m), shipped with the engine so the tool has maps beyond the user's game data.
+BUNDLED_MAPS = Path(__file__).resolve().parents[1] / "engine" / "maps"
+MAP_SUFFIXES = (".mp2", ".mx2", ".fh2m")
+
+
 def map_files(game_data: Path) -> list[Path]:
-    """The .mp2/.mx2 maps in the user's game data."""
-    folder = game_data / "maps"
-    return sorted((p for p in folder.glob("*") if p.suffix.lower() in (".mp2", ".mx2")), key=lambda p: p.name.lower())
+    """The maps in the user's game data, then the maps bundled with the engine."""
+    bundled = Path(os.environ.get("H2LIVE_BUNDLED_MAPS", BUNDLED_MAPS))
+    found = []
+    for folder in (game_data / "maps", bundled):
+        if folder.is_dir():
+            found += sorted((p for p in folder.iterdir() if p.suffix.lower() in MAP_SUFFIXES), key=lambda p: p.name.lower())
+    return found
 
 
 def scout_one(renderer: Path, game_data: Path, map_file: Path) -> "ScoutedMap | None":

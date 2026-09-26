@@ -161,3 +161,21 @@ def test_rendered_view_does_not_depend_on_other_views_in_the_batch(tmp_path):
     render_views(RENDERER, [view], tmp_path / "alone", 420, 700, 1)
     render_views(RENDERER, [View(map=str(MAP), x=3, y=3), View(map=str(MAP), x=5, y=7), view], tmp_path / "together", 420, 700, 1)
     assert (tmp_path / "alone/000/f00.bmp").read_bytes() == (tmp_path / "together/002/f00.bmp").read_bytes()
+
+
+# fheroes2's own map format, bundled in engine/maps.
+FH2M_MAP = REPO / "engine" / "maps" / "Lost_Temple.fh2m"
+
+
+def test_scouts_fh2m_maps(tmp_path):
+    scouted = scout_one(tmp_path, FH2M_MAP)
+    assert scouted["width"] > 0 and len(scouted["tiles"]) == scouted["width"] * scouted["height"]
+    assert any(tile["occupied"] for tile in scouted["tiles"])
+
+
+def test_renders_views_of_fh2m_maps(tmp_path):
+    spec = tmp_path / "views.txt"
+    spec.write_text(f"0 0 {FH2M_MAP}\n")
+    result = run("--render-views", str(spec), str(tmp_path / "out"), "420", "700", "1")
+    assert result.returncode == 0, result.stderr
+    assert bmp_rows(tmp_path / "out/000/f00.bmp")[:2] == (420, 700)

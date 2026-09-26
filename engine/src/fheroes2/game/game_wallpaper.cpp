@@ -22,6 +22,7 @@
  ***************************************************************************/
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -50,6 +51,7 @@
 #include "logging.h"
 #include "maps.h"
 #include "maps_fileinfo.h"
+#include "ui_language.h"
 #include "map_object_info.h"
 #include "maps_tiles.h"
 #include "math_base.h"
@@ -330,6 +332,18 @@ namespace
         return hash;
     }
 
+    // Reads a map's header, in the original .mp2/.mx2 format or fheroes2's own .fh2m ("Resurrection") format.
+    bool readMapInfo( Maps::FileInfo & info, const std::string & path )
+    {
+        std::string extension = System::GetFileName( path );
+        extension = extension.substr( extension.find_last_of( '.' ) + 1 );
+        std::transform( extension.begin(), extension.end(), extension.begin(), []( const unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+        if ( extension == "fh2m" ) {
+            return info.readResurrectionMap( path, false, fheroes2::getCurrentLanguage() );
+        }
+        return info.readMP2Map( path, false );
+    }
+
     // Seeds the generator from the map name while the map loads, so random castle races, heroes,
     // resources, monsters and artifacts come out the same when a view is scouted and when it is rendered
     // later. SetStartGame() already picks random races, so the seed must be in place before it.
@@ -343,8 +357,13 @@ namespace
 
         Settings & conf = Settings::Get();
         conf.setCurrentMapInfo( info );
+        const bool isResurrection = info.version == GameVersion::RESURRECTION;
+        if ( isResurrection ) {
+            // As the game does before loading an .fh2m map.
+            conf.GetPlayers().Init( info );
+        }
         conf.GetPlayers().SetStartGame();
-        const bool isLoaded = world.LoadMapMP2( info.filename, false );
+        const bool isLoaded = isResurrection ? world.loadResurrectionMap( info.filename ) : world.LoadMapMP2( info.filename, false );
         if ( isRepeatable ) {
             generator = savedGenerator;
         }
@@ -659,7 +678,7 @@ int Game::ScoutMaps( const std::string & outDir, const std::vector<std::string> 
     }
     for ( const std::string & file : mapFiles ) {
         Maps::FileInfo info;
-        if ( !info.readMP2Map( file, false ) ) {
+        if ( !readMapInfo( info, file ) ) {
             ERROR_LOG( "Could not read map " << file )
             return EXIT_FAILURE;
         }
@@ -724,7 +743,7 @@ int Game::RenderViews( const std::string & viewsFile, const std::string & outDir
 
         if ( mapFile != loadedMap ) {
             Maps::FileInfo info;
-            if ( !info.readMP2Map( mapFile, false ) || !loadMap( info, true ) ) {
+            if ( !readMapInfo( info, mapFile ) || !loadMap( info, true ) ) {
                 ERROR_LOG( "Could not load map " << mapFile )
                 return EXIT_FAILURE;
             }

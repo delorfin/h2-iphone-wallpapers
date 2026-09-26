@@ -220,3 +220,14 @@ def test_reuse_ignores_the_history(tmp_path):
 def test_failed_batch_leaves_the_history_alone(tmp_path):
     assert run(tmp_path, 4, "good", "too-many") != 0
     assert not (tmp_path / "used-views.txt").exists()
+
+
+def test_bundled_maps_are_scouted_too(tmp_path, monkeypatch):
+    from h2live.select import map_files
+    bundled = tmp_path / "bundled"
+    bundled.mkdir()
+    (bundled / "Extra.fh2m").write_text("fake")
+    (bundled / "notes.txt").write_text("not a map")
+    monkeypatch.setenv("H2LIVE_BUNDLED_MAPS", str(bundled))
+    data = fake_game_data(tmp_path, "good")
+    assert [p.name for p in map_files(data)] == ["a.mp2", "b.mp2", "dull.mp2", "Extra.fh2m"]
