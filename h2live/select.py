@@ -9,6 +9,7 @@ import math
 import os
 import pickle
 import subprocess
+import sys
 import tempfile
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -532,21 +533,43 @@ def map_files(game_data: Path) -> list[Path]:
     return found
 
 
+# How long one engine call may take; on some errors the engine waits forever on a dialog nobody sees.
+ENGINE_TIMEOUT = 600
+
+
+class ScoutFailed(Exception):
+    """The engine failed for a reason other than the map, e.g. missing game data or a crash."""
+
+
+def engine_error(stderr: str) -> str:
+    lines = [line for line in stderr.splitlines() if "[ERROR]" in line]
+    return (lines[-1] if lines else stderr.strip()[-300:]) or "no error message"
+
+
 def scout_one(renderer: Path, game_data: Path, map_file: Path) -> "ScoutedMap | None":
     """Scouts one map in its own renderer process: loading several maps in one process lets engine
-    state carry over, so random objects would differ from the later render. None if it fails to load."""
+    state carry over, so random objects would differ from the later render. None if the map itself
+    can't be loaded; ScoutFailed for anything else, which says nothing about the map."""
     with tempfile.TemporaryDirectory() as scratch:
-        subprocess.run([str(renderer), "--scout-maps", scratch, str(map_file)], capture_output=True, text=True,
-                       env={**os.environ, "FHEROES2_DATA": str(game_data)})
+        try:
+            result = subprocess.run([str(renderer), "--scout-maps", scratch, str(map_file)], capture_output=True,
+                                    text=True, env={**os.environ, "FHEROES2_DATA": str(game_data)}, timeout=ENGINE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise ScoutFailed(f"the engine took over {ENGINE_TIMEOUT} s on {map_file}") from None
         written = list(Path(scratch).glob("*.json"))
-        return load_map(json.loads(written[0].read_text())) if written else None
+        if written:
+            return load_map(json.loads(written[0].read_text()))
+        if "Could not read map" in result.stderr or "Could not load map" in result.stderr:
+            return None
+        raise ScoutFailed(engine_error(result.stderr))
 
 
 def scout_maps(renderer: Path, game_data: Path, cache_dir: Path, maps: list[Path] | None = None) -> list[ScoutedMap]:
     """Every map the renderer can load. The cache remembers each map file by size and modification time,
-    so only new or changed maps get scouted; removed maps drop out; a renderer rebuild rescouts all."""
+    so only new or changed maps get scouted; removed maps drop out; a renderer rebuild or other game data
+    rescouts all. Maps that fail for reasons other than the map itself are left out of the cache and retried."""
     stat = renderer.stat()
-    build = f"{stat.st_size}-{stat.st_mtime_ns}"
+    build = f"{stat.st_size}-{stat.st_mtime_ns} {game_data.resolve()}"
     cache = cache_dir / f"maps-v{CACHE_VERSION}.pickle"
     known = {}
     # The cache is ours alone, written below from the renderer's output.
@@ -558,11 +581,18 @@ def scout_maps(renderer: Path, game_data: Path, cache_dir: Path, maps: list[Path
     files = maps if maps is not None else map_files(game_data)
     stamps = {str(f): (f.stat().st_size, f.stat().st_mtime_ns) for f in files}
     todo = [f for f in files if str(f) not in known or known[str(f)][0] != stamps[str(f)]]
+    def attempt(map_file: Path) -> "ScoutedMap | None | ScoutFailed":
+        try:
+            return scout_one(renderer, game_data, map_file)
+        except ScoutFailed as error:
+            return error
+
     with ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
-        fresh = list(pool.map(lambda m: scout_one(renderer, game_data, m), todo))
-    # Maps that fail to load are kept as None, so they aren't retried every batch.
+        fresh = list(pool.map(attempt, todo))
+    failures = [(f, result) for f, result in zip(todo, fresh) if isinstance(result, ScoutFailed)]
+    # Maps that can't be loaded are kept as None, so they aren't retried every batch.
     current = {path: known[path] for path in stamps if path in known and known[path][0] == stamps[path]}
-    current.update({str(f): (stamps[str(f)], scouted) for f, scouted in zip(todo, fresh)})
+    current.update({str(f): (stamps[str(f)], result) for f, result in zip(todo, fresh) if not isinstance(result, ScoutFailed)})
 
     if current != known or not cache.exists():
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -574,6 +604,10 @@ def scout_maps(renderer: Path, game_data: Path, cache_dir: Path, maps: list[Path
                 old.unlink()
 
     found = [scouted for path, (_, scouted) in sorted(current.items()) if scouted is not None]
+    if failures and found:
+        print(f"{len(failures)} maps couldn't be scouted and will be retried next time; "
+              f"{Path(failures[0][0]).name}: {failures[0][1]}", file=sys.stderr)
     if not found:
-        raise RuntimeError("scouting found no loadable maps; check the renderer build and the game data folder")
+        reason = f"; the engine said: {failures[-1][1]}" if failures else ""
+        raise RuntimeError(f"scouting found no loadable maps in {game_data} or the bundled maps{reason}")
     return found

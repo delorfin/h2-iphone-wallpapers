@@ -224,6 +224,43 @@ def test_failed_batch_leaves_the_history_alone(tmp_path):
     assert not (tmp_path / "used-views.txt").exists()
 
 
+def test_maps_that_fail_for_another_reason_are_retried_and_reported(tmp_path, monkeypatch, capsys):
+    # A crash or missing game data says nothing about the map, so it mustn't be remembered as unloadable.
+    log = tmp_path / "scouts.log"
+    monkeypatch.setenv("FAKE_SCOUT_LOG", str(log))
+    data = fake_game_data(tmp_path, "good")
+    (data / "maps/crash.mp2").write_text("fake")
+    assert scout(tmp_path, data) == ["a.mp2", "b.mp2", "dull.mp2"]
+    assert "No AGG data files found" in capsys.readouterr().err
+    log.unlink()
+    scout(tmp_path, data)
+    assert scouted_names(log) == ["crash.mp2"]
+
+
+def test_when_no_map_scouts_the_error_shows_the_engine_message(tmp_path):
+    from h2live.select import scout_maps
+    data = tmp_path / "data"
+    (data / "maps").mkdir(parents=True)
+    (data / "maps/crash.mp2").write_text("fake")
+    with pytest.raises(RuntimeError, match="No AGG data files found"):
+        scout_maps(Path(fake_renderer(tmp_path)), data, tmp_path / "cache")
+
+
+def test_other_game_data_rescouts_everything(tmp_path, monkeypatch):
+    # The bundled maps keep their paths when the game data changes, e.g. from the demo to a full install.
+    from h2live.select import scout_maps
+    log = tmp_path / "scouts.log"
+    monkeypatch.setenv("FAKE_SCOUT_LOG", str(log))
+    bundled = tmp_path / "bundled"
+    bundled.mkdir()
+    (bundled / "a.mp2").write_text("fake")
+    monkeypatch.setenv("H2LIVE_BUNDLED_MAPS", str(bundled))
+    for data in ("demo", "full"):
+        (tmp_path / data).mkdir()
+        scout_maps(Path(fake_renderer(tmp_path)), tmp_path / data, tmp_path / "cache")
+    assert scouted_names(log) == ["a.mp2", "a.mp2"]
+
+
 def test_bundled_maps_are_scouted_too(tmp_path, monkeypatch):
     from h2live.select import map_files
     bundled = tmp_path / "bundled"
