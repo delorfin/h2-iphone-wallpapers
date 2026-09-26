@@ -1,3 +1,4 @@
+import pytest
 import sys
 from pathlib import Path
 
@@ -90,15 +91,60 @@ def test_without_import_only_the_finished_live_photos_and_view_list_stay(tmp_pat
     assert sorted(p.name for p in (tmp_path / "batch").iterdir()) == ["live", "views.txt"]
 
 
-def test_after_import_only_the_view_list_stays(tmp_path, monkeypatch):
-    # Photos keeps its own copy of every imported file, so the rendered stages are no longer needed.
+def fake_import(monkeypatch) -> list:
     import h2live.batch as batch
     imported = []
     monkeypatch.setattr(batch, "import_pairs", lambda pairs, album: imported.extend(pairs) or len(pairs))
-    code = main(["--out", str(tmp_path / "batch"), "--count", "2", "--renderer", fake_renderer(tmp_path),
-                 "--scout-cache", str(tmp_path / "cache"), "--game-data", str(fake_game_data(tmp_path, "good"))])
-    assert code == 0 and len(imported) == 2
-    assert sorted(p.name for p in (tmp_path / "batch").iterdir()) == ["views.txt"]
+    return imported
+
+
+def batch_args(tmp_path: Path, *extra: str) -> list[str]:
+    return ["--count", "2", "--renderer", fake_renderer(tmp_path), "--scout-cache", str(tmp_path / "cache"),
+            "--game-data", str(fake_game_data(tmp_path, "good")), *extra]
+
+
+def test_after_import_the_batch_folder_is_removed(tmp_path, monkeypatch):
+    # Photos keeps its own copy of every imported file, and the history records the views.
+    imported = fake_import(monkeypatch)
+    assert main(batch_args(tmp_path, "--out", str(tmp_path / "batch"))) == 0
+    assert len(imported) == 2
+    assert not (tmp_path / "batch").exists()
+
+
+def test_without_out_the_batch_works_in_the_cache_and_cleans_up(tmp_path, monkeypatch, capsys):
+    fake_import(monkeypatch)
+    assert main(batch_args(tmp_path)) == 0
+    work = tmp_path / "cache" / "work"
+    assert str(work) in capsys.readouterr().out
+    assert not work.exists() or not any(work.iterdir())
+
+
+def test_a_failed_batch_keeps_its_work_folder(tmp_path, monkeypatch, capsys):
+    import h2live.batch as batch
+    def broken(*args, **kwargs):
+        raise RuntimeError("encoder broke")
+    monkeypatch.setattr(batch, "make_clip", broken)
+    with pytest.raises(RuntimeError):
+        main(batch_args(tmp_path))
+    kept = [p for p in (tmp_path / "cache" / "work").iterdir()]
+    assert len(kept) == 1 and (kept[0] / "frames").is_dir()
+    assert str(kept[0]) in capsys.readouterr().out
+
+
+def test_without_import_or_out_the_live_photos_go_to_the_export_folder(tmp_path, monkeypatch):
+    monkeypatch.setenv("H2LIVE_EXPORT_DIR", str(tmp_path / "Downloads"))
+    assert main(batch_args(tmp_path, "--no-import")) == 0
+    exported = list((tmp_path / "Downloads").glob("h2live-*"))
+    assert len(exported) == 1
+    assert len(list((exported[0] / "live").glob("*.mov"))) == 2
+
+
+def test_history_notes_each_batch(tmp_path, monkeypatch):
+    fake_import(monkeypatch)
+    assert main(batch_args(tmp_path, "--album", "H2", "--history", str(tmp_path / "used.txt"))) == 0
+    lines = (tmp_path / "used.txt").read_text().splitlines()
+    assert lines[0].startswith("# ") and "H2" in lines[0] and "2 views" in lines[0]
+    assert len(lines) == 3
 
 
 def scouted_names(log: Path) -> list[str]:
@@ -157,7 +203,7 @@ def test_maps_that_fail_to_load_are_not_retried(tmp_path, monkeypatch):
 
 def test_next_batch_avoids_views_used_before(tmp_path):
     assert run(tmp_path, 2, "good", "first") == 0
-    used = (tmp_path / "used-views.txt").read_text().splitlines()
+    used = [line for line in (tmp_path / "used-views.txt").read_text().splitlines() if not line.startswith("#")]
     assert len(used) == 2
     # Each fake map has exactly one good view, so only the third map is left.
     assert run(tmp_path, 1, "good", "second") == 0

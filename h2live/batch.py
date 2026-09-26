@@ -40,16 +40,28 @@ def used_views(history: Path, maps: list) -> list[View]:
     paths = {Path(m.path).name: m.path for m in maps}
     views = []
     for line in history.read_text().splitlines() if history.exists() else []:
+        if line.startswith("#"):  # a note heading each batch
+            continue
         x, y, name = line.split(" ", 2)
         if name in paths:
             views.append(View(paths[name], int(x), int(y)))
     return views
 
 
-def remember(history: Path, views: list[View]) -> None:
+def remember(history: Path, views: list[View], album: str | None) -> None:
     history.parent.mkdir(parents=True, exist_ok=True)
+    where = f"album {album}" if album else "not imported"
     with history.open("a") as out:
+        out.write(f"# {datetime.now():%Y-%m-%d %H:%M} {where}, {len(views)} views\n")
         out.writelines(f"{v.x} {v.y} {Path(v.map).name}\n" for v in views)
+
+
+def default_out(no_import: bool, cache: Path) -> Path:
+    """A work folder in the cache, removed after import; or, for --no-import, an export folder in Downloads."""
+    stamp = f"{datetime.now():%Y-%m-%d-%H%M%S}"
+    if no_import:
+        return Path(os.environ.get("H2LIVE_EXPORT_DIR", Path.home() / "Downloads")) / f"h2live-{stamp}"
+    return cache / "work" / stamp
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -57,7 +69,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     if argv[:1] == ["batch"]:
         argv = argv[1:]
     parser = argparse.ArgumentParser(prog="h2live batch", description=__doc__)
-    parser.add_argument("--out", type=Path, required=True, help="empty or new folder for this batch")
+    parser.add_argument("--out", type=Path, help="empty or new folder to work in (default: a folder in the cache, "
+                        "or ~/Downloads/h2live-<date> with --no-import)")
     parser.add_argument("--count", type=int, default=60)
     parser.add_argument("--scale", type=int, choices=(2, 3, 4), default=3)
     parser.add_argument("--brightness", type=int, default=70)
@@ -107,11 +120,15 @@ def render_good_views(args: argparse.Namespace, frames: Path) -> list[View]:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.out is None:
+        args.out = default_out(args.no_import, args.scout_cache)
     if args.out.exists() and any(args.out.iterdir()):
         print(f"{args.out} is not empty; choose a new folder", file=sys.stderr)
         return 1
 
     frames, clips, live = args.out / "frames", args.out / "clips", args.out / "live"
+    # Printed first, so a failed batch's leftovers can be found; they stay for diagnosis.
+    print(f"Working in {args.out}")
     try:
         views = render_good_views(args, frames)
     except (NotEnoughViews, RuntimeError) as error:
@@ -132,14 +149,14 @@ def main(argv: list[str] | None = None) -> int:
     shutil.rmtree(frames)
     shutil.rmtree(clips)
     if args.no_import:
-        remember(args.history, views)
+        remember(args.history, views, None)
         print(f"Built {len(pairs)} Live Photos in {live}")
         return 0
 
     import_pairs(pairs, args.album)
-    remember(args.history, views)
-    # Photos keeps its own copy of every imported file.
-    shutil.rmtree(live)
+    remember(args.history, views, args.album)
+    # Photos keeps its own copy of every imported file, and the history records the views.
+    shutil.rmtree(args.out)
     print(f"Imported {len(pairs)} Live Photos into the Photos album {args.album!r}.")
     print("Next: select the iPhone in Finder's sidebar to sync the album (it must be ticked under Photos → Selected albums).")
     return 0
