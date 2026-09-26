@@ -302,3 +302,80 @@ def test_capture_times_continue_across_batches(tmp_path):
     assert run(tmp_path, 1, "good", "second") == 0
     times = [capture_time(p) for p in [*sorted((tmp_path / "first/live").glob("*.HEIC")), *(tmp_path / "second/live").glob("*.HEIC")]]
     assert times == ["1996:01:01 12:00:00", "1996:01:01 12:01:00", "1996:01:01 12:02:00"]
+
+
+def test_default_album_is_the_one_the_sync_instructions_name(tmp_path, monkeypatch):
+    import h2live.batch as batch
+    albums = []
+    monkeypatch.setattr(batch, "import_pairs", lambda pairs, album: albums.append(album) or len(pairs))
+    assert main(batch_args(tmp_path)) == 0
+    assert albums == ["H2"]
+
+
+def test_missing_tools_stop_the_batch_before_rendering(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-path"))
+    assert main(batch_args(tmp_path, "--no-import", "--out", str(tmp_path / "batch"))) != 0
+    assert "brew install" in capsys.readouterr().err
+    assert not (tmp_path / "batch").exists()
+
+
+def test_missing_renderer_says_to_build_it(tmp_path, capsys):
+    args = batch_args(tmp_path, "--no-import", "--out", str(tmp_path / "batch"))
+    args[args.index("--renderer") + 1] = str(tmp_path / "not-built")
+    assert main(args) != 0
+    assert "./build.sh" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("option, value", [("--brightness", "0"), ("--brightness", "101"), ("--count", "0")])
+def test_bad_numbers_are_refused_before_rendering(tmp_path, option, value):
+    with pytest.raises(SystemExit):
+        main([*batch_args(tmp_path, "--no-import", "--out", str(tmp_path / "batch")), option, value])
+    assert not (tmp_path / "batch").exists()
+
+
+def test_blank_lines_in_the_history_are_ignored(tmp_path):
+    (tmp_path / "used-views.txt").write_text("# old batch\n0 0 a.mp2\n\n")
+    assert run(tmp_path, 1) == 0
+    lines = (tmp_path / "used-views.txt").read_text().splitlines()
+    assert sum(bool(line) and not line.startswith("#") for line in lines) == 2
+
+
+def test_a_failed_photos_import_keeps_the_files_and_records_the_views(tmp_path, monkeypatch, capsys):
+    # The Live Photos on disk already carry their capture times, so the history must count them.
+    import h2live.batch as batch
+    from h2live.photos import PhotosImportError
+    def refuse(pairs, album):
+        raise PhotosImportError("Photos refused")
+    monkeypatch.setattr(batch, "import_pairs", refuse)
+    history = tmp_path / "used.txt"
+    assert main(batch_args(tmp_path, "--out", str(tmp_path / "batch"), "--history", str(history))) != 0
+    assert "Photos refused" in capsys.readouterr().err
+    assert len(list((tmp_path / "batch/live").glob("*.mov"))) == 2
+    lines = history.read_text().splitlines()
+    assert "failed" in lines[0] and len(lines) == 3
+
+
+def test_a_failing_tool_is_named_with_its_message(tmp_path, monkeypatch, capsys):
+    import subprocess
+    import h2live.batch as batch
+    def broken(*args, **kwargs):
+        raise subprocess.CalledProcessError(1, ["MP4Box", "-add"], stderr=b"Bad Parameter")
+    monkeypatch.setattr(batch, "make_live_photo", broken)
+    assert main(batch_args(tmp_path, "--no-import", "--out", str(tmp_path / "batch"))) != 0
+    err = capsys.readouterr().err
+    assert "MP4Box" in err and "Bad Parameter" in err and str(tmp_path / "batch") in err
+
+
+def test_the_same_seed_makes_the_same_batch(tmp_path, capsys):
+    printed = []
+    for out in ("one", "two"):
+        assert run(tmp_path, 2, "good", out, "--seed", "7", "--reuse") == 0
+        printed.append([line.split(" ", 1)[1] for line in capsys.readouterr().out.splitlines() if "/2 pan" in line])
+    assert printed[0] == printed[1]
+    assert (tmp_path / "one/views.txt").read_text() == (tmp_path / "two/views.txt").read_text()
+
+
+def test_help_mentions_get_demo(capsys):
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    assert "h2live get-demo" in capsys.readouterr().out

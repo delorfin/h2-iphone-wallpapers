@@ -32,3 +32,21 @@ def test_allows_long_imports():
 def test_count_mismatch_names_the_album():
     with pytest.raises(RuntimeError, match="H2 test"):
         import_pairs(PAIRS, "H2 test", run=fake_osascript("4\n", []))
+
+
+def failing_osascript(stderr: str):
+    def run(args, **kwargs):
+        raise subprocess.CalledProcessError(1, args, output="", stderr=stderr)
+    return run
+
+
+def test_a_refused_import_explains_the_automation_permission():
+    from h2live.photos import PhotosImportError
+    with pytest.raises(PhotosImportError, match="Automation"):
+        import_pairs(PAIRS, "H2", run=failing_osascript("execution error: Not authorized to send Apple events to Photos. (-1743)"))
+
+
+def test_other_import_errors_show_the_message():
+    from h2live.photos import PhotosImportError
+    with pytest.raises(PhotosImportError, match="disk full"):
+        import_pairs(PAIRS, "H2", run=failing_osascript("execution error: disk full (-34)"))

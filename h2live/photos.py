@@ -9,6 +9,10 @@ import subprocess
 from pathlib import Path
 
 
+class PhotosImportError(RuntimeError):
+    pass
+
+
 def _quote(text: str) -> str:
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -24,10 +28,17 @@ add imported to album {_quote(album)}
 return count of imported
 end tell
 end timeout"""
-    result = run(["osascript", "-e", script], check=True, capture_output=True, text=True)
+    try:
+        result = run(["osascript", "-e", script], check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as error:
+        message = (error.stderr or "").strip() or f"osascript exited with code {error.returncode}"
+        if "-1743" in message or "Not authorized" in message:
+            message += ("\nAllow your terminal app to control Photos in System Settings → Privacy & Security → "
+                        "Automation, then run the batch again.")
+        raise PhotosImportError(f"Photos didn't import the wallpapers: {message}") from None
     imported = int(result.stdout.strip())
     if imported != len(pairs):
-        raise RuntimeError(
+        raise PhotosImportError(
             f"Photos imported {imported} items into album {album!r}, expected {len(pairs)} Live Photos; "
             "some pairs were not recognised as Live Photos"
         )
