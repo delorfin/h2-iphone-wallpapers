@@ -166,12 +166,8 @@ ifndef FHEROES2_WITH_SYSTEM_SMACKER
 endif
 	$(MAKE) -C engine
 	$(MAKE) -C fheroes2
-ifdef FHEROES2_WITH_TOOLS
-	$(MAKE) -C tools
-endif
 
 clean:
 	$(MAKE) -C thirdparty/libsmacker clean
 	$(MAKE) -C engine clean
 	$(MAKE) -C fheroes2 clean
-	$(MAKE) -C tools clean

@@ -1,6 +1,6 @@
 # Engine
 
-A copy of the [fheroes2](https://github.com/ihhub/fheroes2) engine as adapted by [h2lwp](https://github.com/IlyaPomaskin/h2lwp) (an Android live wallpaper), taken at h2lwp commit 9ed990e1f, licensed GPL-2.0 (see LICENSE). Only what the macOS build needs is kept; the Android app and other platforms are left out.
+A copy of the [fheroes2](https://github.com/ihhub/fheroes2) engine as adapted by [h2lwp](https://github.com/IlyaPomaskin/h2lwp) (an Android live wallpaper), taken at h2lwp commit 9ed990e1f, licensed GPL-2.0 (see LICENSE). Only what the macOS build and rendering need is kept: the Android app, other platforms, translations, music, tools, the Mac app bundle and CMake files are left out, and the top-level `Makefile` builds just the engine binary.
 
 Changes for this project, all in `src/fheroes2/game/` (`game_wallpaper.cpp`, `game.h`, `fheroes2.cpp`):
 
