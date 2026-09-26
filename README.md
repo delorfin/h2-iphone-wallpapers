@@ -3,8 +3,7 @@
 Renders random views of Heroes of Might and Magic II adventure maps on the Mac and turns them into Live Photos that the iPhone lock screen plays as moving wallpapers. The phone uses only built-in apps: a synced Photos album and a daily Shortcuts automation. iOS has no live wallpaper API for third-party apps, so this is the closest equivalent; see [docs/findings.md](docs/findings.md) for why it works the way it does.
 
 <p align="center">
-  <img src="docs/media/h2-demo.webp" width="280" alt="Lock screen waking up: a grassland map view animates briefly, then settles">
-  <img src="docs/media/h2-demo-2.webp" width="280" alt="Lock screen waking up: a snowy map view animates briefly, then settles">
+  <img src="docs/media/h2-demo.webp" width="280" alt="Lock screen waking up: the view around a castle on the demo map animates briefly, then settles">
 </p>
 
 What you get: every morning a new wallpaper on the lock and home screen. On wake, the lock screen plays about 1.7 s of map animation (units, flags, water, a slow pan), then settles on the still.
