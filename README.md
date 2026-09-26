@@ -13,7 +13,7 @@ A fan project, not affiliated with or endorsed by Ubisoft, the current owner of 
 ## Quick start
 
 1. Install the tools: Xcode Command Line Tools (`xcode-select --install`), [Homebrew](https://brew.sh), [uv](https://docs.astral.sh/uv/), then `brew install sdl2 sdl2_mixer ffmpeg gpac exiftool imagemagick libheif`.
-2. Get the code and build the renderer: `git clone <this repo>`, `cd` into it, `./build.sh` (under a minute on a recent Mac).
+2. Get the code and build the renderer: `git clone https://github.com/delorfin/h2-iphone-wallpapers.git`, `cd h2-iphone-wallpapers`, `./build.sh` (under a minute on a recent Mac).
 3. Have game data (see [Game data](#game-data)), or run `uv run h2live get-demo`.
 4. Make wallpapers: `uv run h2live batch --count 30`. They go into the Photos album "H2".
 5. Sync the album to the iPhone and set up the shortcut ([Get them onto the iPhone](#get-them-onto-the-iphone), [Rotate them on the iPhone](#rotate-them-on-the-iphone)).
