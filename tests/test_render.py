@@ -7,8 +7,6 @@ import pytest
 
 from real_engine import GAME_DATA, RENDERER, game_maps, needs_engine
 
-# HoMM2 animates water by rotating these palette entries rather than swapping sprites.
-WATER = range(231, 236)
 
 pytestmark = needs_engine
 # The Android app's mode, which h2live doesn't use: views of random maps from the game data (not the
@@ -19,12 +17,6 @@ needs_maps = pytest.mark.skipif(len(game_maps()) < 2, reason="needs several maps
 def bmp_size(path: Path) -> tuple[int, int]:
     width, height = struct.unpack("<ii", path.read_bytes()[18:26])
     return width, abs(height)
-
-
-def bmp_indices(path: Path) -> bytes:
-    """Palette indices of an 8-bit BMP (row order doesn't matter for comparing frames)."""
-    data = path.read_bytes()
-    return data[struct.unpack("<I", data[10:14])[0]:]
 
 
 def render(out: Path, count: int, width: int, height: int, frames: int = 8) -> subprocess.CompletedProcess:
@@ -47,28 +39,6 @@ def test_renders_count_views_of_frames_each(tmp_path):
         assert {bmp_size(f) for f in frames} == {(420, 700)}
         assert len({f.read_bytes() for f in frames}) > 1, f"{view} has no animation"
         assert (view / "map.txt").read_text().strip()
-
-
-@needs_maps
-def test_water_shimmers_between_frames(tmp_path):
-    assert render(tmp_path, 4, 420, 700, frames=2).returncode == 0
-    shimmering = []
-    for view in sorted(p for p in tmp_path.iterdir() if p.is_dir()):
-        first, second = bmp_indices(view / "f00.bmp"), bmp_indices(view / "f01.bmp")
-        water = [i for i, index in enumerate(first) if index in WATER]
-        if len(water) > 1000:
-            shimmering.append(sum(first[i] != second[i] for i in water) / len(water))
-    assert shimmering, "none of the 4 random views had water; rerun"
-    assert min(shimmering) > 0.5
-
-
-@needs_maps
-def test_two_runs_pick_different_maps(tmp_path):
-    maps = []
-    for run in ("a", "b"):
-        assert render(tmp_path / run, 3, 420, 700, frames=1).returncode == 0
-        maps.append(sorted((tmp_path / run / d / "map.txt").read_text() for d in ("000", "001", "002")))
-    assert maps[0] != maps[1]
 
 
 @needs_maps

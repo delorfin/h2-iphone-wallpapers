@@ -58,7 +58,7 @@ def run(tmp_path: Path, count: int, maps: str = "good", out: str = "batch", *ext
 
 
 def test_renders_every_view_that_passes_the_map_rules(tmp_path):
-    # dull.mp2 renders flat; the user dropped the image check because it rejected views they liked.
+    # dull.mp2 renders flat; the author dropped the image check because it rejected views they liked.
     assert run(tmp_path, 3) == 0
     views = (tmp_path / "batch/views.txt").read_text().splitlines()
     assert sorted(Path(line.split(" ", 2)[2]).name for line in views) == ["a.mp2", "b.mp2", "dull.mp2"]

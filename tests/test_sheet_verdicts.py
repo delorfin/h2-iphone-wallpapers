@@ -1,18 +1,16 @@
-"""The user's verdicts on the calibration sheets, checked against the real maps.
+"""The author's verdicts on the calibration contact sheets (h2live/calibrate.py), checked against the maps.
 
-Tags are <round>-<sheet number>. Views the user didn't comment on keep the verdict the sheet showed,
+The maps come from a fan-made collection that isn't distributed here, so these tests skip without them.
+Tags are <round>-<sheet number>. Views the author didn't comment on keep the verdict the sheet showed,
 unless a later verdict overruled the rule behind it (sheet 2-27 at 60% of one type passes
 because 2-28 at 64% was fine; 2-04 with a 5x5 blank square passes because 2-06 with one was fine).
 """
 
-import json
-import os
-import subprocess
 from pathlib import Path
 
 import pytest
 
-from h2live.select import Window, check, load_map
+from h2live.select import Window, check, scout_maps
 
 REPO = Path(__file__).resolve().parents[1]
 RENDERER = REPO / "engine" / "fheroes2"
@@ -20,19 +18,15 @@ GAME_DATA = Path.home() / "Library/Application Support/fheroes2"
 MAPS = GAME_DATA / "maps"
 NAMES = ['04Chateau du Dragon.mp2', '06Ponts.mp2', '10Rand.mp2', 'Avatar.mp2', 'Beautifu.MX2', 'BloodBul.MX2', 'Citydrag.mx2', 'ContinentPerdu.mp2', 'Cousins.MX2', 'DIXIE01.MP2', 'DRAGONIS.MP2', 'Dark One.mp2', 'Element.MP2', 'Empires.mp2', 'Enia.mp2', 'GHOSTPLT.MX2', 'ISLEWOND.MP2', 'Jasonsla.mp2', 'JudgeDoo.MX2', 'KNIGHTS40.MX2', 'LittlePe.MX2', 'M-earth.mx2', 'MAP_0075.MP2', 'Map_0127.MP2', 'Midnight.MX2', 'MikaCon.MP2', 'Necroman.MX2', 'Notredyy.mp2', 'OLDKI_00.MP2', 'Pat13.mx2', 'Pax1.mp2', 'PilgrimP.MX2', 'Plains.MX2', 'RIDDLAND.MP2', 'SANDTIME.MX2', 'SONOFASA.MX2', 'Six Sins.mp2', 'Soul Mirror.mp2', 'StarfireMP.mx2', 'THETREAC.MP2', 'The Maze.MP2', 'TheDande.mp2', 'TheKeepe.mp2', 'TheSwamp.mp2', 'Treasure.mp2', 'WOTR!.MX2', 'bigwar.mp2', 'bugfest.mp2', 'deathwh2.mp2', 'feuglace.MP2', 'lom.mx2', 'marionb.mp2', 'mobydick.mx2', 'northame.mp2', 'scandina.mp2', 'thearena.mp2']
 
-# The calibration maps come from a fan collection, not the game, so most setups skip these.
 pytestmark = pytest.mark.skipif(not RENDERER.exists() or not all((MAPS / n).exists() for n in NAMES),
                                 reason="needs the renderer and the calibration maps in fheroes2's maps folder")
 
 
 @pytest.fixture(scope="module")
 def scouted(tmp_path_factory):
-    out = tmp_path_factory.mktemp("scout")
-    result = subprocess.run([str(RENDERER), "--scout-maps", str(out), *(str(MAPS / n) for n in NAMES)],
-                            capture_output=True, text=True, timeout=300,
-                            env={**os.environ, "FHEROES2_DATA": str(GAME_DATA)})
-    assert result.returncode == 0, result.stderr
-    return {n: load_map(json.loads((out / f"{n}.json").read_text())) for n in NAMES}
+    # One engine process per map, as batches scout: in one shared process random objects come out differently.
+    maps = scout_maps(RENDERER, GAME_DATA, tmp_path_factory.mktemp("scout-cache"), maps=[MAPS / n for n in NAMES])
+    return {Path(m.path).name: m for m in maps}
 
 
 def failures(scouted, name: str, x: int, y: int) -> list[str]:

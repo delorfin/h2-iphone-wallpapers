@@ -110,6 +110,19 @@ def test_render_views_puts_the_tile_at_the_top_left(tmp_path):
     assert all(down[r] == base[r + TILE] for r in range(600))
 
 
+# HoMM2 animates water by rotating these palette entries rather than swapping sprites.
+WATER = range(231, 236)
+
+
+def test_water_shimmers_between_frames(tmp_path):
+    # The top left of the map is about half water.
+    assert render_views(tmp_path, [(0, 0)], frames=2).returncode == 0
+    first, second = (b"".join(bmp_rows(tmp_path / f"out/000/{f}.bmp")[2]) for f in ("f00", "f01"))
+    water = [i for i, index in enumerate(first) if index in WATER]
+    assert len(water) > 10000
+    assert sum(first[i] != second[i] for i in water) / len(water) > 0.5
+
+
 def test_render_views_is_deterministic(tmp_path):
     for run_dir in ("a", "b"):
         (tmp_path / run_dir).mkdir()

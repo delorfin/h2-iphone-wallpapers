@@ -96,3 +96,29 @@ def test_still_matches_the_video_frame_it_settles_on(pair, tmp_path):
                             capture_output=True, text=True)
     normalized = float(result.stderr.split("(")[1].split(")")[0])
     assert normalized < 0.004
+
+
+def test_video_is_60_evenly_spaced_frames_at_60_fps(pair):
+    # Variable frame timing and other rates are rejected or undeliverable (docs/findings.md).
+    _, mov = pair
+    video = probe(mov)["streams"][0]
+    assert video["r_frame_rate"] == video["avg_frame_rate"] == "60/1"
+    assert int(video["nb_frames"]) == 60
+    pts = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts",
+                          "-of", "csv=p=0", str(mov)], check=True, capture_output=True, text=True).stdout.split()
+    pts = sorted(map(int, pts))
+    num, den = map(int, video["time_base"].split("/"))
+    assert {b - a for a, b in zip(pts, pts[1:])} == {den // (60 * num)}
+
+
+def test_still_is_video_frame_30(pair, tmp_path):
+    # The lock screen settles on frame 30; a still from any other frame jumps at the settle.
+    heic, mov = pair
+    still, frame = tmp_path / "still.png", tmp_path / "frame.png"
+    subprocess.run(["magick", str(heic), "+profile", "*", str(still)], check=True)
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(mov), "-map", "0:v:0", "-vf",
+                    "select=eq(n\\,30),scale=in_color_matrix=bt601:in_range=pc,format=rgb24", "-frames:v", "1",
+                    str(frame)], check=True)
+    result = subprocess.run(["magick", "compare", "-metric", "MAE", str(still), str(frame), "null:"],
+                            capture_output=True, text=True)
+    assert float(result.stderr.split("(")[1].split(")")[0]) < 0.004

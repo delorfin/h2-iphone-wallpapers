@@ -112,14 +112,14 @@ def test_largest_empty_square_measures_the_hole():
 
 
 def test_a_five_tile_hole_is_allowed():
-    # Sheet 2-06 has one and the user found it fine.
+    # Sheet 2-06 has one and the author found it fine.
     hole = fill_except(Scout(14, 22), [(3, 5, 5, 5)])
     assert largest_empty_square(hole.map(), whole(hole)) == 5
     assert "empty" not in check(hole.map(), whole(hole)).failures
 
 
 def test_empty_space_at_the_top_counts():
-    # The clock covers the top of the view, but the user still called sheet 2-33 "emptyish at top".
+    # The clock covers the top of the view, but the author still called sheet 2-33 "emptyish at top".
     hole = fill_except(Scout(14, 22), [(0, 0, 6, 6)])
     assert "empty" in check(hole.map(), whole(hole)).failures
 
