@@ -7,7 +7,7 @@ Changes for this project, each file marked with a "Changed in 2026" note:
 - `src/fheroes2/game/game_wallpaper.cpp`, `game.h`, `fheroes2.cpp`: command-line modes that h2live runs.
   - `--scout-maps <dir> [map...]` writes per-map JSON of every tile's terrain and object parts, for view selection.
   - `--render-views <views.txt> <dir> <width> <height> <frames>` renders animation frames for chosen views, with palette cycling baked in. Map loading is seeded per map, before random races are picked, so scouting and rendering agree.
-  - `--render-wallpapers <dir> <count> <width> <height> <frames>` renders random views; h2live no longer uses it.
+  - `--render-wallpapers <dir> <count> <width> <height> <frames>` renders random views; unused by h2live.
   - Both scout and render read `.mp2`/`.mx2` maps and fheroes2's `.fh2m` maps.
   - A macOS build fix: Android-only calls are guarded.
 - `Makefile`, `src/dist/Makefile`, `src/dist/fheroes2/Makefile`: build only the engine binary, without the tools or the translation template (so gettext isn't needed).

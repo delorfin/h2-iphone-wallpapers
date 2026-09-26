@@ -6,7 +6,7 @@ Renders random views of Heroes of Might and Magic II adventure maps on a Mac and
   <img src="docs/media/h2-demo.webp" width="280" alt="Lock screen waking up: the view around a castle on the demo map animates briefly, then settles">
 </p>
 
-Every morning a new wallpaper appears on the lock and home screen. When the phone wakes, the lock screen plays about 1.7 s of map animation (units, flags, water, a slow pan), then settles on the still.
+Every morning a new wallpaper appears on the lock and home screen. When the phone wakes, the lock screen plays about 1.7 s of map animation (units, flags, water, a slow pan), then settles on the still. Tested on an iPhone 12 Pro with iOS 18.7.2; Apple documents none of this, so a later iOS may change it.
 
 A fan project, not affiliated with or endorsed by Ubisoft, the current owner of Heroes of Might and Magic, or by the game's makers, New World Computing and 3DO. It includes no game files: the art comes from your own copy of the game or the free demo.
 
@@ -52,13 +52,14 @@ Options (`uv run h2live batch --help` lists them all):
 | `--album` | H2 | Photos album to add them to |
 | `--scale` | 3 | screen pixels per map pixel (2-4) |
 | `--brightness` | 70 | percent; dims the map so the clock stays readable |
-| `--no-import` | | build the files in `~/Downloads/h2live-<date>/live` and skip Photos |
+| `--no-import` | | build the files in `~/Downloads/h2live-<date and time>/live` and skip Photos |
 | `--game-data` | see [Game data](#game-data) | folder with `DATA` and `MAPS` |
 | `--reuse` | | allow views used by earlier batches |
 | `--seed` | | makes the choice of views and pans repeatable |
-| `--out` | | work in this folder instead |
+| `--out` | | work in this folder instead; it must be empty or new |
 
-- **No repeats across batches.** Every batch appends its views to `~/Library/Application Support/h2live/used-views.txt`, and later batches skip anything overlapping them. When too few unused views are left, the batch stops and says how many it found.
+- **No repeats across batches.** Every batch appends its views to `~/Library/Application Support/h2live/used-views.txt`, and later batches skip anything overlapping them. When too few unused views are left, the batch stops and says how many it found; with only the demo, that's after about 190 wallpapers. `--reuse` lifts the limit.
+- **The album only grows.** To retire old wallpapers, delete them from the album in Photos on the Mac; the next sync removes them from the phone, and the history still keeps later batches from repeating them.
 - **Maps** come from the game data's `MAPS` folder (`.mp2`, `.mx2`, `.fh2m`) plus fheroes2's 11 bundled `.fh2m` maps in `engine/maps`. The scout cache (`~/Library/Caches/h2live`) remembers each map file by size and date, so the next batch scouts only new or changed maps and drops removed ones. Maps the engine can't load are remembered and skipped; other failures are retried next time. Rebuilding the renderer or switching game data rescouts everything.
 - **Where it works.** In a folder under `~/Library/Caches/h2live/work/`, deleted after a successful import: Photos keeps its own copy of every file, and the history records the views. If a step fails, the folder stays and its path is printed.
 
@@ -68,7 +69,7 @@ The wallpapers must arrive in the iPhone's Photos app as Live Photos with their 
 
 | Path | Suits | Status |
 |---|---|---|
-| Finder photo sync | iCloud Photos off on the iPhone; the album updates on the phone when you sync | Verified |
+| Finder photo sync | iCloud Photos off on the iPhone (with it on, Finder won't sync photos at all); the album updates on the phone when you sync | Verified |
 | AirDrop from the Photos app on the Mac | Anyone; one-off batches | Verified (from Finder it sends two separate files) |
 | iCloud Photos | iCloud Photos on; the album syncs by itself | Untested: whether the wallpaper metadata survives iCloud is unknown |
 
@@ -80,7 +81,9 @@ Finder photo sync, one-time setup:
 
 After that, a sync starts when you select the iPhone in Finder's sidebar (cable, or Wi-Fi while the phone is awake or charging). The album appears on the phone read-only. Synced photos keep their Live Photo motion, don't count against iCloud storage, and aren't picked up by Google Photos. Keep the album in Photos on the Mac: sync mirrors it, so photos removed there disappear from the phone at the next sync.
 
-With AirDrop or iCloud Photos the wallpapers land in the camera roll, where backup apps such as Google Photos pick them up. They're all dated 1 January 1996, which keeps them out of the recent timeline and makes them easy to find and delete in one go.
+With AirDrop or iCloud Photos the wallpapers land in the camera roll, where backup apps such as Google Photos pick them up. They're all dated 1 January 1996, which keeps them out of the recent timeline and makes them easy to find and delete in one go. With AirDrop, add the received photos to an album named H2 on the phone, which the shortcut below looks in.
+
+If Finder's sync fails with error -50: quit Photos, delete the "iPod Photo Cache" folder inside the Photos library (right-click the library → Show Package Contents), then run `killall AMPDevicesAgent AMPDeviceDiscoveryAgent` and sync again.
 
 ## Rotate them on the iPhone
 
@@ -100,7 +103,7 @@ To see which wallpaper is on (optional): after Set Wallpaper Photo, add **Get De
 
 ## Selection rules
 
-A view is used only if it passes every rule (`h2live/select.py`). The thresholds were calibrated against the author's verdicts on contact sheets, pinned in `tests/test_sheet_verdicts.py`. Objects include trees, mountains and ground decorations; borders between terrains count as content, roads and rivers don't.
+A view is used only if it passes every rule (`h2live/select.py`). The thresholds were calibrated by eye: the author judged contact sheets (grids of candidate views just either side of each threshold, made by `h2live.calibrate`), and those verdicts are pinned in `tests/test_sheet_verdicts.py`. Objects include trees, mountains and ground decorations; borders between terrains count as content, roads and rivers don't.
 
 | Rule | Fails when |
 |---|---|
@@ -114,7 +117,7 @@ A view is used only if it passes every rule (`h2live/select.py`). The thresholds
 | Animation | fewer than 2 animated objects and fewer than 4 water/lava tiles |
 | Pan / overlap | the pan would leave the map, or the view overlaps an already chosen view of the same map |
 
-To recalibrate: `uv run python -m h2live.calibrate <out-dir>` renders a contact sheet of views just either side of each threshold.
+To recalibrate: `uv run python -m h2live.calibrate <out-dir>` renders such a contact sheet.
 
 ## Tests
 
@@ -122,7 +125,7 @@ To recalibrate: `uv run python -m h2live.calibrate <out-dir>` renders a contact 
 uv run pytest
 ```
 
-Engine tests skip unless `engine/fheroes2` is built and game data is found. With only the demo, a few tests of the engine's random-map mode, which h2live doesn't use, skip too. The calibration tests need the author's fan-made maps and skip without them.
+Engine tests skip unless `engine/fheroes2` is built and game data is found. With only the demo, a few tests of the engine's random-map mode, which h2live doesn't use, skip too. The calibration tests use 56 maps from a fan-made collection that isn't distributed here; they run only when those maps are in fheroes2's `maps` folder and skip otherwise.
 
 ## License
 
