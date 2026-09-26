@@ -34,7 +34,7 @@ Things tried and rejected for animation: even 15-60 steps/s (a "slide show of fr
 | AppleScript import into Mac Photos | Pairs the still and video into a Live Photo. PhotoKit from Terminal is denied by TCC |
 | AirDrop from Mac Photos | Works; from Finder it sends two separate files |
 | Finder photo sync (iCloud Photos off) | Works and keeps motion; synced photos aren't backed up by Google Photos |
-| iCloud Photos | Library too big for the free 5 GB |
+| iCloud Photos | Not tried: it syncs the whole photo library, which rarely fits free iCloud's 5 GB |
 | iCloud shared album | Reported to break wallpaper compatibility |
 | Shortcuts saving files into Photos | No action pairs a still and video into a Live Photo |
 
@@ -42,10 +42,10 @@ Phone → Mac AirDrop of a Live Photo needs Options → All Photos Data, or only
 
 ## Engine gotchas
 
-- `make` overwrites `./fheroes2` in place and macOS kills it on launch (stale code signature); `build.sh` copies a fresh file.
+- `make` overwrites `engine/fheroes2` in place and macOS kills it on launch (stale code signature); `build.sh` copies a fresh file.
 - The Makefile never defines `NDEBUG`; some shipped maps (e.g. "Easy Walk.mp2") trip loader assertions and abort. `build.sh` builds with `-DNDEBUG`.
 - Non-bundle macOS builds look for data in `~/.fheroes2`; the tool sets `FHEROES2_DATA`.
-- The repo's `files/data/resurrection.h2d` is found next to the binary, so the renderer must run from the repo root copy.
+- `engine/files/data/resurrection.h2d` is found next to the binary, so the renderer must run from `engine/`, where `build.sh` puts it.
 - Random castle races are chosen in `SetStartGame()`, so the per-map seed must be set before it.
 - Engine state carries over between map loads in one process, changing random artifacts and resources. The tool scouts and renders every map in its own process so the rendered view matches the scouted one.
 - On error dialogs (e.g. a missing resource) the engine blocks forever; test runs need timeouts.
@@ -54,7 +54,7 @@ Phone → Mac AirDrop of a Live Photo needs Options → All Photos Data, or only
 
 - Set Wallpaper Photo's "Show Preview" hides under the action's › arrow and must be off for automations.
 - Time of Day automations run daily at most; there's no "every N minutes".
-- On iOS 18, Set Wallpaper Photo fails intermittently, often every other run ("NSXPC connection type unavailable for com.apple.PhotosUIPrivate.PhotosPosterProvider", also seen as extensionKit error 2). Apple marked it "potential fix identified" for a future update; reports say it persists on the iPhone 12 Pro through 18.1.1 ([Apple Community](https://discussions.apple.com/thread/255761645)). Workaround: a second automation a minute later.
+- On iOS 18, Set Wallpaper Photo fails intermittently, often every other run ("NSXPC connection type unavailable for com.apple.PhotosUIPrivate.PhotosPosterProvider", also seen as extensionKit error 2). Seen here on 18.7.2; others reported it on 18.1.1 ([Apple Community](https://discussions.apple.com/thread/255761645)). Workaround: a second automation a minute later.
 - On the phone, a synced photo's Name reads as a UUID, not the file name it was imported with. Date Taken survives the sync, so the tool gives every wallpaper its own capture time, one minute apart across all batches.
 - Finder photo sync failed with error -50 until the "iPod Photo Cache" folder inside the Photos library was cleared and the sync agents (AMPDevicesAgent, AMPDeviceDiscoveryAgent) restarted.
 - Finder Wi-Fi sync only holds while the phone is awake or charging; a locked phone drops out of Finder mid-sync. Sync starts when the phone is selected in Finder's sidebar.
@@ -64,4 +64,3 @@ Phone → Mac AirDrop of a Live Photo needs Options → All Photos Data, or only
 - **Replacing the album instead of growing it.** Photos' AppleScript can add to albums and delete albums, but not remove photos from an album, and recreating the album would lose Finder's sync selection. Planned approach: tag the current batch with a keyword (writable via AppleScript), sync a smart album "keyword is h2-current", and move the keyword to each new batch. Open question: whether Finder lets you pick a smart album for sync.
 - **Scheduled generation.** A launchd job running the batch monthly, then the sync on the next Finder visit or charging session. Finder sync itself can't be triggered by a script (UI scripting is possible but fragile).
 - **Smoother big objects.** Hand-made or RotSprite in-between frames for windmills, so they turn instead of holding.
-- **Deferred review minors:** some failures end in raw tracebacks with partial folders; pan direction and view choice unseeded.
