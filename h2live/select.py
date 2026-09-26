@@ -52,7 +52,7 @@ OBJECT_LAYER, BACKGROUND_LAYER, TERRAIN_LAYER = 0, 1, 3
 LINE_ICNS = (30, 45)
 OBJ_NONE, OBJ_COAST = 0, 28
 # Bump when the cached form of scouted maps changes.
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 
 
 def _base_type(object_type: int) -> int:
@@ -532,21 +532,37 @@ def scout_one(renderer: Path, game_data: Path, map_file: Path) -> "ScoutedMap | 
 
 
 def scout_maps(renderer: Path, game_data: Path, cache_dir: Path, maps: list[Path] | None = None) -> list[ScoutedMap]:
-    """Every map the renderer can load, scouted once per renderer build and cached."""
+    """Every map the renderer can load. The cache remembers each map file by size and modification time,
+    so only new or changed maps get scouted; removed maps drop out; a renderer rebuild rescouts all."""
     stat = renderer.stat()
-    cache = cache_dir / f"maps-v{CACHE_VERSION}-{stat.st_size}-{stat.st_mtime_ns}.pickle"
-    # The cache is ours alone, written just below from the renderer's output.
+    build = f"{stat.st_size}-{stat.st_mtime_ns}"
+    cache = cache_dir / f"maps-v{CACHE_VERSION}.pickle"
+    known = {}
+    # The cache is ours alone, written below from the renderer's output.
     if cache.exists():
-        return pickle.loads(cache.read_bytes())
+        stored = pickle.loads(cache.read_bytes())
+        if stored["build"] == build:
+            known = stored["maps"]
 
+    files = maps if maps is not None else map_files(game_data)
+    stamps = {str(f): (f.stat().st_size, f.stat().st_mtime_ns) for f in files}
+    todo = [f for f in files if str(f) not in known or known[str(f)][0] != stamps[str(f)]]
     with ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
-        scouted = list(pool.map(lambda m: scout_one(renderer, game_data, m), maps if maps is not None else map_files(game_data)))
-    found = [m for m in scouted if m is not None]
+        fresh = list(pool.map(lambda m: scout_one(renderer, game_data, m), todo))
+    # Maps that fail to load are kept as None, so they aren't retried every batch.
+    current = {path: known[path] for path in stamps if path in known and known[path][0] == stamps[path]}
+    current.update({str(f): (stamps[str(f)], scouted) for f, scouted in zip(todo, fresh)})
+
+    if current != known or not cache.exists():
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        partial = cache.with_suffix(".partial")
+        partial.write_bytes(pickle.dumps({"build": build, "maps": current}))
+        partial.replace(cache)  # a batch killed mid-write leaves the old cache intact
+        for old in cache_dir.glob("maps-*.pickle"):
+            if old != cache:
+                old.unlink()
+
+    found = [scouted for path, (_, scouted) in sorted(current.items()) if scouted is not None]
     if not found:
         raise RuntimeError("scouting found no loadable maps; check the renderer build and the game data folder")
-
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    for old in cache_dir.glob("maps-*.pickle"):
-        old.unlink()
-    cache.write_bytes(pickle.dumps(found))
     return found

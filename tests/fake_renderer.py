@@ -1,7 +1,8 @@
 """Stands in for fheroes2's --scout-maps and --render-views so batch tests don't need game data.
 
 Scouts one map per call, like the batch asks: a.mp2, b.mp2 and dull.mp2 are small maps with one good
-view each; empty.mp2 has nothing on it. Views of "dull.mp2" render as one flat colour.
+view each; empty.mp2 has nothing on it; broken.mp2 fails to load. Views of "dull.mp2" render as one flat
+colour. FAKE_SCOUT_LOG, if set, collects the name of every map scouted.
 """
 
 import json
@@ -30,6 +31,11 @@ def good_map(name: str, seed: int) -> dict:
 def scout(out: Path, map_file: str) -> None:
     out.mkdir(parents=True, exist_ok=True)
     name = Path(map_file).name
+    if os.environ.get("FAKE_SCOUT_LOG"):
+        with open(os.environ["FAKE_SCOUT_LOG"], "a") as log:
+            log.write(name + "\n")
+    if name == "broken.mp2":  # stands in for a map the engine can't load: no JSON written
+        return
     if name == "empty.mp2":
         maps = [{"map": "empty.mp2", "width": 14, "height": 22,
                  "tiles": [{"ground": "grass", "object": 0, "occupied": False, "parts": []}] * (14 * 22)}]

@@ -29,6 +29,29 @@ def scout_cache() -> Path:
     return Path(os.environ.get("H2LIVE_SCOUT_CACHE", Path.home() / "Library/Caches/h2live"))
 
 
+def history_file() -> Path:
+    """Every view used by earlier batches, one "x y mapfile" line each. App data, not cache: losing it
+    would let new batches repeat old wallpapers."""
+    return Path(os.environ.get("H2LIVE_HISTORY", Path.home() / "Library/Application Support/h2live/used-views.txt"))
+
+
+def used_views(history: Path, maps: list) -> list[View]:
+    """Views from the history, matched to the scouted maps by file name so moving the game folder is fine."""
+    paths = {Path(m.path).name: m.path for m in maps}
+    views = []
+    for line in history.read_text().splitlines() if history.exists() else []:
+        x, y, name = line.split(" ", 2)
+        if name in paths:
+            views.append(View(paths[name], int(x), int(y)))
+    return views
+
+
+def remember(history: Path, views: list[View]) -> None:
+    history.parent.mkdir(parents=True, exist_ok=True)
+    with history.open("a") as out:
+        out.writelines(f"{v.x} {v.y} {Path(v.map).name}\n" for v in views)
+
+
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["batch"]:
@@ -43,6 +66,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--renderer", type=Path, default=REPO / "fheroes2", help="built by ios-livephoto/build.sh")
     parser.add_argument("--scout-cache", type=Path, default=scout_cache(), help="where scouted maps are kept between batches")
     parser.add_argument("--game-data", type=Path, default=GAME_DATA, help="fheroes2 data folder with DATA and MAPS")
+    parser.add_argument("--history", type=Path, default=history_file(), help="views used by earlier batches")
+    parser.add_argument("--reuse", action="store_true", help="allow views used by earlier batches")
     return parser.parse_args(argv)
 
 
@@ -67,15 +92,17 @@ def render_views(renderer: Path, views: list[View], out: Path, width: int, heigh
         list(pool.map(lambda item: render_one(*item), enumerate(views)))
 
 
-def render_good_views(args: argparse.Namespace, frames: Path) -> None:
-    """Renders `args.count` views that pass the map rules into frames/NNN."""
+def render_good_views(args: argparse.Namespace, frames: Path) -> list[View]:
+    """Renders `args.count` views that pass the map rules, and no earlier batch used, into frames/NNN."""
     width, height = view_size(args.scale)
     maps = scout_maps(args.renderer, args.game_data, args.scout_cache)
-    views = select_views(maps, args.count, *window_tiles(width, height), random.Random())
+    used = [] if args.reuse else used_views(args.history, maps)
+    views = select_views(maps, args.count, *window_tiles(width, height), random.Random(), exclude=used)
     # Kept after the batch as the record of which map views it holds.
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "views.txt").write_text("".join(f"{v.x} {v.y} {v.map}\n" for v in views))
     render_views(args.renderer, views, frames, width, height, POSES, args.game_data)
+    return views
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -86,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
 
     frames, clips, live = args.out / "frames", args.out / "clips", args.out / "live"
     try:
-        render_good_views(args, frames)
+        views = render_good_views(args, frames)
     except (NotEnoughViews, RuntimeError) as error:
         print(error, file=sys.stderr)
         return 1
@@ -105,10 +132,12 @@ def main(argv: list[str] | None = None) -> int:
     shutil.rmtree(frames)
     shutil.rmtree(clips)
     if args.no_import:
+        remember(args.history, views)
         print(f"Built {len(pairs)} Live Photos in {live}")
         return 0
 
     import_pairs(pairs, args.album)
+    remember(args.history, views)
     # Photos keeps its own copy of every imported file.
     shutil.rmtree(live)
     print(f"Imported {len(pairs)} Live Photos into the Photos album {args.album!r}.")

@@ -9,7 +9,7 @@ What you get: every morning a new wallpaper on the lock and home screen. On wake
 - macOS with Photos, Homebrew and [uv](https://docs.astral.sh/uv/).
 - `brew install sdl2 sdl2_mixer ffmpeg gpac exiftool imagemagick libheif`
 - HoMM2 game data in `~/Library/Application Support/fheroes2` (`DATA`, `MAPS`).
-- iPhone with iCloud Photos **off** (Finder photo sync only works then).
+- An iPhone. Finder photo sync, the verified way to deliver them, needs iCloud Photos off; see below for other ways.
 
 ## Build
 
@@ -26,11 +26,21 @@ cd ios-livephoto
 uv run h2live batch --out ~/Pictures/h2lwp-batches/$(date +%F) --count 365 --album "H2"
 ```
 
-This scouts every map (first run only, cached per renderer build in `~/Library/Caches/h2live`), picks views that pass the selection rules, renders them, builds Live Photos and imports them into the Photos album. Options: `--scale` (2-4, default 3), `--brightness` (default 70), `--no-import`. A batch of 365 takes a while; each wallpaper is about 3.5 MB.
+This scouts the maps, picks views that pass the selection rules, renders them, builds Live Photos and imports them into the Photos album. Options: `--scale` (2-4, default 3), `--brightness` (default 70), `--no-import` (build the files, skip Photos), `--reuse` (see below). A batch of 365 takes a while; each wallpaper is about 3.5 MB.
 
-After a successful import the output folder keeps only `views.txt` (which map views the batch holds): Photos stores its own copy of every file, in `~/Pictures/Photos Library.photoslibrary`. With `--no-import` the finished Live Photos stay in `live/`. If a step fails, all intermediate stages stay for diagnosis. Keep the album in Photos: Finder sync mirrors it, so removing photos there removes them from the phone at the next sync.
+- **No repeats across batches.** Every batch appends its views to `~/Library/Application Support/h2live/used-views.txt`, and later batches skip anything overlapping them. `--reuse` ignores the history. When too few unused views are left, the batch stops and says how many it found.
+- **Adding or removing maps** in `~/Library/Application Support/fheroes2/maps` is picked up by the next batch: the scout cache (`~/Library/Caches/h2live`) remembers each map file by size and date, scouts only new or changed ones and drops removed ones. Maps the engine can't load are remembered and skipped. Rebuilding the renderer rescouts everything.
+- **Clean-up.** After a successful import the output folder keeps only `views.txt`; Photos stores its own copy of every file in `~/Pictures/Photos Library.photoslibrary`. With `--no-import` the finished Live Photos stay in `live/`. If a step fails, all intermediate stages stay for diagnosis.
 
 ## Get them onto the iPhone
+
+The wallpapers must arrive in the iPhone's Photos app as Live Photos with their metadata intact.
+
+| Path | Suits | Status |
+|---|---|---|
+| Finder photo sync | iCloud Photos off; the album updates on the phone when you sync | Verified |
+| AirDrop from the Photos app on the Mac | Anyone; one-off batches | Verified (from Finder it sends two separate files) |
+| iCloud Photos | iCloud Photos on; the album syncs by itself | Untested: whether the wallpaper metadata survives iCloud is unknown |
 
 Finder photo sync, one-time setup:
 
@@ -38,15 +48,23 @@ Finder photo sync, one-time setup:
 2. Finder → iPhone → General: tick "Show this iPhone when on Wi-Fi".
 3. Photos tab: tick "Sync photos to your device from: Photos", choose "Selected albums", tick **H2**, keep "Include videos" ticked. Apply.
 
-After that, a sync starts when you select the iPhone in Finder's sidebar (cable, or Wi-Fi while the phone is awake or charging). The album appears on the phone as a read-only synced album. Synced photos keep their Live Photo motion, don't count against iCloud storage, and aren't picked up by Google Photos.
+After that, a sync starts when you select the iPhone in Finder's sidebar (cable, or Wi-Fi while the phone is awake or charging). The album appears on the phone read-only. Synced photos keep their Live Photo motion, don't count against iCloud storage, and aren't picked up by Google Photos. Keep the album in Photos on the Mac: sync mirrors it, so photos removed there disappear from the phone at the next sync.
 
-## Daily rotation on the iPhone
+With AirDrop or iCloud Photos the wallpapers land in the camera roll, where backup apps such as Google Photos pick them up. They're all dated 1 January 1996, which keeps them out of the recent timeline and makes them easy to find and delete in one go.
 
-1. Shortcuts → new shortcut "H2 wallpaper": **Find Photos** (Album is H2) → **Get Item from List** (Random Item) → **Set Wallpaper Photo** (Lock Screen and Home Screen; expand the action with › and turn **Show Preview off**).
-2. Automation → Time of Day, e.g. 05:00, Daily, **Run Immediately**, Notify When Run off → run "H2 wallpaper".
-3. Duplicate that automation at 05:01. On iOS 18, Set Wallpaper Photo fails on about every other run ("NSXPC connection type unavailable for com.apple.PhotosUIPrivate.PhotosPosterProvider"); Shortcuts has no retry, so the second run is the retry.
+## Rotate them on the iPhone
 
-Show Preview must be off: with it on, the automation reports success and changes nothing.
+The shortcut, "H2 wallpaper": **Find Photos** (Album is H2) → **Get Item from List** (Random Item) → **Set Wallpaper Photo** (Lock Screen and Home Screen; expand the action with › and turn **Show Preview off**, or automations report success and change nothing).
+
+Ways to run it:
+
+- **Daily:** Automation → Time of Day (e.g. 05:00, Daily, Run Immediately, Notify When Run off). Time of Day also offers weekly and monthly.
+- **On an event:** Automation triggers such as connecting the charger, an alarm going off or a Focus turning on.
+- **By hand:** add the shortcut to the Home Screen or as a widget.
+- **Lock screen only:** choose Lock Screen instead of both in Set Wallpaper Photo; only the lock screen plays the motion anyway.
+- **No automation at all:** pick a wallpaper in Settings → Wallpaper → Add New → Photos, with the Live Photo button on.
+
+On iOS 18, Set Wallpaper Photo fails on about every other run ("NSXPC connection type unavailable for com.apple.PhotosUIPrivate.PhotosPosterProvider"). Shortcuts has no retry, so add a second automation a minute after the first.
 
 ## Selection rules
 

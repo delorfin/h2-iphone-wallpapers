@@ -48,6 +48,7 @@ def write_frames(view: Path, source: str) -> Path:
 def scout_cache(tmp_path, monkeypatch) -> Path:
     """Keeps tests out of the real scout cache in ~/Library/Caches."""
     monkeypatch.setenv("H2LIVE_SCOUT_CACHE", str(tmp_path / "scout-cache"))
+    monkeypatch.setenv("H2LIVE_HISTORY", str(tmp_path / "history/used-views.txt"))
     return tmp_path / "scout-cache"
 
 

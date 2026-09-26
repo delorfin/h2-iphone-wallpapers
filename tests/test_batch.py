@@ -8,6 +8,8 @@ FAKE = Path(__file__).with_name("fake_renderer.py")
 
 def fake_renderer(tmp_path: Path) -> str:
     wrapper = tmp_path / "renderer"
+    if wrapper.exists():  # rewriting it would look like a renderer rebuild to the scout cache
+        return str(wrapper)
     wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} {FAKE} \"$@\"\n")
     wrapper.chmod(0o755)
     return str(wrapper)
@@ -46,10 +48,10 @@ def fake_game_data(tmp_path: Path, maps: str) -> Path:
     return folder
 
 
-def run(tmp_path: Path, count: int, maps: str = "good") -> int:
-    return main(["--out", str(tmp_path / "batch"), "--count", str(count), "--no-import",
+def run(tmp_path: Path, count: int, maps: str = "good", out: str = "batch", *extra: str) -> int:
+    return main(["--out", str(tmp_path / out), "--count", str(count), "--no-import",
                  "--renderer", fake_renderer(tmp_path), "--scout-cache", str(tmp_path / "cache"),
-                 "--game-data", str(fake_game_data(tmp_path, maps))])
+                 "--game-data", str(fake_game_data(tmp_path, maps)), "--history", str(tmp_path / "used-views.txt"), *extra])
 
 
 def test_renders_every_view_that_passes_the_map_rules(tmp_path):
@@ -97,3 +99,78 @@ def test_after_import_only_the_view_list_stays(tmp_path, monkeypatch):
                  "--scout-cache", str(tmp_path / "cache"), "--game-data", str(fake_game_data(tmp_path, "good"))])
     assert code == 0 and len(imported) == 2
     assert sorted(p.name for p in (tmp_path / "batch").iterdir()) == ["views.txt"]
+
+
+def scouted_names(log: Path) -> list[str]:
+    return sorted(log.read_text().split()) if log.exists() else []
+
+
+def scout(tmp_path: Path, data: Path) -> list[str]:
+    from h2live.select import scout_maps
+    return sorted(Path(m.path).name for m in scout_maps(Path(fake_renderer(tmp_path)), data, tmp_path / "cache"))
+
+
+def test_new_maps_are_scouted_and_known_ones_reused(tmp_path, monkeypatch):
+    log = tmp_path / "scouts.log"
+    monkeypatch.setenv("FAKE_SCOUT_LOG", str(log))
+    data = fake_game_data(tmp_path, "good")
+    (data / "maps/dull.mp2").unlink()
+    assert scout(tmp_path, data) == ["a.mp2", "b.mp2"]
+    log.unlink()
+    (data / "maps/dull.mp2").write_text("fake")
+    assert scout(tmp_path, data) == ["a.mp2", "b.mp2", "dull.mp2"]
+    assert scouted_names(log) == ["dull.mp2"]
+
+
+def test_removed_maps_drop_out_without_rescouting_the_rest(tmp_path, monkeypatch):
+    log = tmp_path / "scouts.log"
+    monkeypatch.setenv("FAKE_SCOUT_LOG", str(log))
+    data = fake_game_data(tmp_path, "good")
+    scout(tmp_path, data)
+    log.unlink()
+    (data / "maps/b.mp2").unlink()
+    assert scout(tmp_path, data) == ["a.mp2", "dull.mp2"]
+    assert scouted_names(log) == []
+
+
+def test_changed_maps_are_rescouted(tmp_path, monkeypatch):
+    log = tmp_path / "scouts.log"
+    monkeypatch.setenv("FAKE_SCOUT_LOG", str(log))
+    data = fake_game_data(tmp_path, "good")
+    scout(tmp_path, data)
+    log.unlink()
+    (data / "maps/a.mp2").write_text("fake, edited")
+    scout(tmp_path, data)
+    assert scouted_names(log) == ["a.mp2"]
+
+
+def test_maps_that_fail_to_load_are_not_retried(tmp_path, monkeypatch):
+    log = tmp_path / "scouts.log"
+    monkeypatch.setenv("FAKE_SCOUT_LOG", str(log))
+    data = fake_game_data(tmp_path, "good")
+    (data / "maps/broken.mp2").write_text("fake")
+    assert scout(tmp_path, data) == ["a.mp2", "b.mp2", "dull.mp2"]
+    log.unlink()
+    scout(tmp_path, data)
+    assert scouted_names(log) == []
+
+
+def test_next_batch_avoids_views_used_before(tmp_path):
+    assert run(tmp_path, 2, "good", "first") == 0
+    used = (tmp_path / "used-views.txt").read_text().splitlines()
+    assert len(used) == 2
+    # Each fake map has exactly one good view, so only the third map is left.
+    assert run(tmp_path, 1, "good", "second") == 0
+    third = (tmp_path / "second/views.txt").read_text().split(" ", 2)[2].strip()
+    assert Path(third).name not in {line.split(" ", 2)[2] for line in used}
+    assert run(tmp_path, 1, "good", "third") != 0
+
+
+def test_reuse_ignores_the_history(tmp_path):
+    assert run(tmp_path, 3, "good", "first") == 0
+    assert run(tmp_path, 3, "good", "second", "--reuse") == 0
+
+
+def test_failed_batch_leaves_the_history_alone(tmp_path):
+    assert run(tmp_path, 4, "good", "too-many") != 0
+    assert not (tmp_path / "used-views.txt").exists()
