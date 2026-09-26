@@ -20,6 +20,7 @@
  *   Free Software Foundation, Inc.,                                       *
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
+// Changed in 2026 for h2-iphone-wallpapers: declarations of the wallpaper, scout and view modes.
 
 #pragma once
 

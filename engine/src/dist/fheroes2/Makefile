@@ -17,6 +17,7 @@
 #   Free Software Foundation, Inc.,                                       #
 #   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             #
 ###########################################################################
+# Changed in 2026 for h2-iphone-wallpapers: no translation template, so gettext isn't needed.
 
 DEPLIBS := ../engine/libengine.a
 CCFLAGS := $(CCFLAGS) -I../../engine
@@ -34,7 +35,7 @@ VPATH := $(SOURCEDIRS)
 
 .PHONY: all pot clean
 
-all: $(TARGET) pot
+all: $(TARGET)
 
 pot: fheroes2.pot
 
