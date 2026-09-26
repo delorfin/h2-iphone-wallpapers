@@ -1,6 +1,6 @@
 # HoMM2 map wallpapers for iPhone
 
-Renders random views of Heroes of Might and Magic II adventure maps on a Mac and turns them into Live Photos that the iPhone lock screen plays as moving wallpapers. The phone needs only built-in apps: a synced Photos album and a daily Shortcuts automation. iOS has no live wallpaper API for third-party apps, so this is the closest equivalent; [docs/findings.md](docs/findings.md) explains why it works the way it does.
+Renders random views of Heroes of Might and Magic II adventure maps on a Mac and turns them into Live Photos that the iPhone lock screen plays as moving wallpapers. The phone needs only built-in apps: a synced Photos album and a daily Shortcuts automation. iOS has no live wallpaper API for third-party apps, so this is the closest equivalent; [docs/findings.md](docs/findings.md) explains why it works the way it does. It's an iPhone take on [h2lwp](https://github.com/IlyaPomaskin/h2lwp), an Android live wallpaper built on the [fheroes2](https://github.com/ihhub/fheroes2) engine (see [Credits](#credits)).
 
 <p align="center">
   <img src="docs/media/h2-demo.webp" width="280" alt="Lock screen waking up: the view around a castle on the demo map animates briefly, then settles">
@@ -126,6 +126,14 @@ uv run pytest
 ```
 
 Engine tests skip unless `engine/fheroes2` is built and game data is found. With only the demo, a few tests of the engine's random-map mode, which h2live doesn't use, skip too. The calibration tests use 56 maps from a fan-made collection that isn't distributed here; they run only when those maps are in fheroes2's `maps` folder and skip otherwise.
+
+## Credits
+
+- [h2lwp](https://github.com/IlyaPomaskin/h2lwp) by Ilya Pomaskin, the Android live wallpaper this project started from: the idea, and the engine's wallpaper rendering that `engine/` builds on.
+- [fheroes2](https://github.com/ihhub/fheroes2) and its contributors: the open-source Heroes of Might and Magic II engine that renders the maps, the 11 bundled `.fh2m` maps made by its community, and the demo download that `get-demo` follows.
+- [goLive](https://github.com/code-path/goLive): the method of copying a camera Live Photo's metadata, and the sample in `base/`.
+- [libsmacker](http://libsmacker.sourceforge.net), bundled with the engine.
+- New World Computing and 3DO, who made Heroes of Might and Magic II.
 
 ## License
 
