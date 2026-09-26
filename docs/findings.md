@@ -54,6 +54,7 @@ Phone → Mac AirDrop of a Live Photo needs Options → All Photos Data, or only
 
 - Set Wallpaper Photo's "Show Preview" hides under the action's › arrow and must be off for automations.
 - Time of Day automations run daily at most; there's no "every N minutes".
+- On iOS 18, Set Wallpaper Photo fails intermittently, often every other run ("NSXPC connection type unavailable for com.apple.PhotosUIPrivate.PhotosPosterProvider", also seen as extensionKit error 2). Apple marked it "potential fix identified" for a future update; reports say it persists on the iPhone 12 Pro through 18.1.1 ([Apple Community](https://discussions.apple.com/thread/255761645)). Workaround: a second automation a minute later.
 - Finder photo sync failed with error -50 until the "iPod Photo Cache" folder inside the Photos library was cleared and the sync agents (AMPDevicesAgent, AMPDeviceDiscoveryAgent) restarted.
 - Finder Wi-Fi sync only holds while the phone is awake or charging; a locked phone drops out of Finder mid-sync. Sync starts when the phone is selected in Finder's sidebar.
 

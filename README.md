@@ -44,6 +44,7 @@ After that, a sync starts when you select the iPhone in Finder's sidebar (cable,
 
 1. Shortcuts → new shortcut "H2 wallpaper": **Find Photos** (Album is H2) → **Get Item from List** (Random Item) → **Set Wallpaper Photo** (Lock Screen and Home Screen; expand the action with › and turn **Show Preview off**).
 2. Automation → Time of Day, e.g. 05:00, Daily, **Run Immediately**, Notify When Run off → run "H2 wallpaper".
+3. Duplicate that automation at 05:01. On iOS 18, Set Wallpaper Photo fails on about every other run ("NSXPC connection type unavailable for com.apple.PhotosUIPrivate.PhotosPosterProvider"); Shortcuts has no retry, so the second run is the retry.
 
 Show Preview must be off: with it on, the automation reports success and changes nothing.
 
