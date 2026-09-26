@@ -18,6 +18,8 @@ from random import Random
 
 import numpy as np
 
+from h2live.gamedata import maps_folder
+
 TILE = 32
 
 # The rules. Each is a hard limit; a window that misses any one is never used.
@@ -524,8 +526,8 @@ def map_files(game_data: Path) -> list[Path]:
     """The maps in the user's game data, then the maps bundled with the engine."""
     bundled = Path(os.environ.get("H2LIVE_BUNDLED_MAPS", BUNDLED_MAPS))
     found = []
-    for folder in (game_data / "maps", bundled):
-        if folder.is_dir():
+    for folder in (maps_folder(game_data), bundled):
+        if folder is not None and folder.is_dir():
             found += sorted((p for p in folder.iterdir() if p.suffix.lower() in MAP_SUFFIXES), key=lambda p: p.name.lower())
     return found
 

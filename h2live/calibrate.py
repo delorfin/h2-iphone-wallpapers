@@ -17,7 +17,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from h2live.batch import GAME_DATA, RENDERER, scout_cache
+from h2live.batch import RENDERER, scout_cache
+from h2live.gamedata import FHEROES2_DATA as GAME_DATA
 from h2live.clip import view_size
 from h2live.select import (FREQUENT_COPIES, MAX_DUPLICATE_TILES, MIN_ANIMATED_TERRAIN, RULES, TILE, View, Window, bmp_pixels, check,
                            duplicate_tile_share, empty_square, passing_windows, regular_patterns, scout_maps, window_tiles)

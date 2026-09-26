@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from h2live.clip import DIRECTIONS, POSES, make_clip, view_size
+from h2live.gamedata import NoGameData, find_game_data, get_demo_command
 from h2live.livephoto import make_live_photo
 from h2live.photos import import_pairs
 from h2live.select import NotEnoughViews, View, scout_maps, select_views, window_tiles
@@ -19,12 +20,9 @@ from h2live.select import NotEnoughViews, View, scout_maps, select_views, window
 REPO = Path(__file__).resolve().parents[1]
 # Built by build.sh.
 RENDERER = REPO / "engine" / "fheroes2"
-# Non-bundle macOS builds only look in ~/.fheroes2 unless told otherwise.
-GAME_DATA = Path.home() / "Library/Application Support/fheroes2"
 # Keeps every batch together on one day of the Photos and Google Photos timelines, away from real photos.
 # Noon keeps all items on that day in any timezone.
 FIRST_CAPTURE = datetime(1996, 1, 1, 12)
-# Rounds of rendering replacements for views whose still repeats too much.
 
 
 def scout_cache() -> Path:
@@ -66,8 +64,7 @@ def default_out(no_import: bool, cache: Path) -> Path:
     return cache / "work" / stamp
 
 
-def parse_args(argv: list[str] | None) -> argparse.Namespace:
-    argv = sys.argv[1:] if argv is None else argv
+def parse_args(argv: list[str]) -> argparse.Namespace:
     if argv[:1] == ["batch"]:
         argv = argv[1:]
     parser = argparse.ArgumentParser(prog="h2live batch", description=__doc__)
@@ -80,14 +77,15 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--no-import", action="store_true", help="build the files but skip Photos")
     parser.add_argument("--renderer", type=Path, default=RENDERER, help="built by build.sh")
     parser.add_argument("--scout-cache", type=Path, default=scout_cache(), help="where scouted maps are kept between batches")
-    parser.add_argument("--game-data", type=Path, default=GAME_DATA, help="fheroes2 data folder with DATA and MAPS")
+    parser.add_argument("--game-data", type=Path, help="folder with the game's DATA and MAPS (default: fheroes2's "
+                        "data folder, else the demo from h2live get-demo)")
     parser.add_argument("--history", type=Path, default=history_file(), help="views used by earlier batches")
     parser.add_argument("--reuse", action="store_true", help="allow views used by earlier batches")
     return parser.parse_args(argv)
 
 
 def render_views(renderer: Path, views: list[View], out: Path, width: int, height: int, frames: int,
-                 game_data: Path = GAME_DATA) -> None:
+                 game_data: Path) -> None:
     """Renders each view into out/NNN in its own renderer process, several at a time: loading several
     maps in one process lets engine state carry over, so random objects would differ from the scout."""
     def render_one(index: int, view: View) -> None:
@@ -121,7 +119,15 @@ def render_good_views(args: argparse.Namespace, frames: Path) -> list[View]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["get-demo"]:
+        return get_demo_command()
     args = parse_args(argv)
+    try:
+        args.game_data = find_game_data(args.game_data)
+    except NoGameData as error:
+        print(error, file=sys.stderr)
+        return 1
     if args.out is None:
         args.out = default_out(args.no_import, args.scout_cache)
     if args.out.exists() and any(args.out.iterdir()):

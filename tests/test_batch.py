@@ -44,6 +44,8 @@ def test_renderer_failure_stops_the_batch(tmp_path):
 def fake_game_data(tmp_path: Path, maps: str) -> Path:
     folder = tmp_path / "game-data"
     (folder / "maps").mkdir(parents=True, exist_ok=True)
+    (folder / "DATA").mkdir(exist_ok=True)
+    (folder / "DATA/HEROES2.AGG").write_text("fake")
     for name in (["empty.mp2"] if maps == "empty" else ["a.mp2", "b.mp2", "dull.mp2"]):
         (folder / "maps" / name).write_text("fake")
     return folder
@@ -231,3 +233,20 @@ def test_bundled_maps_are_scouted_too(tmp_path, monkeypatch):
     monkeypatch.setenv("H2LIVE_BUNDLED_MAPS", str(bundled))
     data = fake_game_data(tmp_path, "good")
     assert [p.name for p in map_files(data)] == ["a.mp2", "b.mp2", "dull.mp2", "Extra.fh2m"]
+
+
+def test_stops_with_the_options_when_there_is_no_game_data(tmp_path, monkeypatch, capsys):
+    from h2live import gamedata
+    monkeypatch.setattr(gamedata, "FHEROES2_DATA", tmp_path / "no-fheroes2")
+    monkeypatch.setenv("H2LIVE_DEMO_DIR", str(tmp_path / "no-demo"))
+    assert main(["--out", str(tmp_path / "batch"), "--count", "1", "--no-import", "--renderer", fake_renderer(tmp_path)]) != 0
+    assert "h2live get-demo" in capsys.readouterr().err
+    assert not (tmp_path / "batch").exists()
+
+
+def test_get_demo_is_a_command(monkeypatch):
+    from h2live import batch
+    calls = []
+    monkeypatch.setattr(batch, "get_demo_command", lambda: calls.append("get-demo") or 0)
+    assert main(["get-demo"]) == 0
+    assert calls == ["get-demo"]

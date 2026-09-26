@@ -9,12 +9,24 @@ Renders random views of Heroes of Might and Magic II adventure maps on the Mac a
 
 What you get: every morning a new wallpaper on the lock and home screen. On wake, the lock screen plays about 1.7 s of map animation (units, flags, water, a slow pan), then settles on the still.
 
+A fan project, not affiliated with or endorsed by Ubisoft, the owner of Heroes of Might and Magic. It includes no game files: the art comes from your own copy of the game or the free demo (see [Game data](#game-data)).
+
 ## Requirements
 
 - macOS with Photos, Homebrew and [uv](https://docs.astral.sh/uv/).
 - `brew install sdl2 sdl2_mixer ffmpeg gpac exiftool imagemagick libheif`
-- HoMM2 game data in `~/Library/Application Support/fheroes2` (`DATA`, `MAPS`).
+- HoMM2 game data; see below.
 - An iPhone. Finder photo sync, the verified way to deliver them, needs iCloud Photos off; see below for other ways.
+
+## Game data
+
+The renderer draws with the game's graphics archive, `DATA/HEROES2.AGG`, and uses the maps next to it. Any one of these works:
+
+- **fheroes2 with the game's files.** If you play HoMM2 through [fheroes2](https://github.com/ihhub/fheroes2), its data folder `~/Library/Application Support/fheroes2` is used by default.
+- **An original install** (GOG, CD): pass `--game-data <folder>`, the folder that holds `DATA` and `MAPS`.
+- **The free demo.** `uv run h2live get-demo` downloads the 1996 demo (22 MB) from archive.org, the same file fheroes2 offers, and keeps only its graphics archive and its one map in `~/Library/Application Support/h2live/demo`. The demo's graphics archive holds the full game's map art, so wallpapers look the same; the demo map plus the bundled maps give about 190 distinct views. It's used when no fheroes2 game data is found. Please don't redistribute it.
+
+Without any of them, `h2live batch` stops and lists these options.
 
 ## Build
 
@@ -33,7 +45,7 @@ uv run h2live batch --count 365 --album "H2"
 This scouts the maps, picks views that pass the selection rules, renders them, builds Live Photos and imports them into the Photos album. Options: `--scale` (2-4, default 3), `--brightness` (default 70), `--no-import` (build the files, skip Photos), `--reuse` (see below). A batch of 365 takes a while; each wallpaper is about 3.5 MB.
 
 - **No repeats across batches.** Every batch appends its views to `~/Library/Application Support/h2live/used-views.txt`, and later batches skip anything overlapping them. `--reuse` ignores the history. When too few unused views are left, the batch stops and says how many it found.
-- **Maps** come from `~/Library/Application Support/fheroes2/maps` (`.mp2`, `.mx2`, `.fh2m`) plus fheroes2's 11 bundled `.fh2m` maps in `engine/maps`. Adding or removing maps is picked up by the next batch: the scout cache (`~/Library/Caches/h2live`) remembers each map file by size and date, scouts only new or changed ones and drops removed ones. Maps the engine can't load are remembered and skipped. Rebuilding the renderer rescouts everything.
+- **Maps** come from the game data's `MAPS` folder (`.mp2`, `.mx2`, `.fh2m`) plus fheroes2's 11 bundled `.fh2m` maps in `engine/maps`. Adding or removing maps is picked up by the next batch: the scout cache (`~/Library/Caches/h2live`) remembers each map file by size and date, scouts only new or changed ones and drops removed ones. Maps the engine can't load are remembered and skipped. Rebuilding the renderer rescouts everything.
 - **Where it works.** In a folder under `~/Library/Caches/h2live/work/`, deleted after a successful import: Photos stores its own copy of every file in `~/Pictures/Photos Library.photoslibrary`, and the history records the views, with a note per batch. If a step fails, the folder stays for diagnosis; its path is printed first. With `--no-import` the finished Live Photos go to `~/Downloads/h2live-<date>/live`. `--out` picks another folder.
 
 ## Get them onto the iPhone
