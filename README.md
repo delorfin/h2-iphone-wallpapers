@@ -90,3 +90,7 @@ uv run pytest
 ```
 
 Engine tests skip unless `./fheroes2` is built.
+
+## License
+
+GPL-2.0-or-later (see [LICENSE](LICENSE)), the same as the fheroes2 engine in `engine/`. `base/` holds goLive's sample Live Photo under Apache-2.0 (see [base/NOTICE.md](base/NOTICE.md)). Rendering needs Heroes of Might and Magic II game data, which is not included.
