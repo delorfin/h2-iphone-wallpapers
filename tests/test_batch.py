@@ -55,9 +55,9 @@ def run(tmp_path: Path, count: int, maps: str = "good") -> int:
 def test_renders_every_view_that_passes_the_map_rules(tmp_path):
     # dull.mp2 renders flat; the user dropped the image check because it rejected views they liked.
     assert run(tmp_path, 3) == 0
-    frames = tmp_path / "batch/frames"
-    assert sorted((d / "map.txt").read_text().strip() for d in frames.iterdir()) == ["a.mp2", "b.mp2", "dull.mp2"]
-    assert all((d / "view.txt").read_text().split() == ["0", "0"] for d in frames.iterdir())
+    views = (tmp_path / "batch/views.txt").read_text().splitlines()
+    assert sorted(Path(line.split(" ", 2)[2]).name for line in views) == ["a.mp2", "b.mp2", "dull.mp2"]
+    assert all(line.split()[:2] == ["0", "0"] for line in views)
 
 
 def test_stops_with_a_message_when_too_few_views_pass(tmp_path, capsys):
@@ -81,3 +81,19 @@ def test_default_scout_cache_follows_the_environment(tmp_path, scout_cache):
     assert main(["--out", str(out), "--count", "1", "--no-import", "--renderer", fake_renderer(tmp_path),
                  "--game-data", str(fake_game_data(tmp_path, "good"))]) == 0
     assert len(list(scout_cache.glob("*.pickle"))) == 1
+
+
+def test_without_import_only_the_finished_live_photos_and_view_list_stay(tmp_path):
+    assert run(tmp_path, 2) == 0
+    assert sorted(p.name for p in (tmp_path / "batch").iterdir()) == ["live", "views.txt"]
+
+
+def test_after_import_only_the_view_list_stays(tmp_path, monkeypatch):
+    # Photos keeps its own copy of every imported file, so the rendered stages are no longer needed.
+    import h2live.batch as batch
+    imported = []
+    monkeypatch.setattr(batch, "import_pairs", lambda pairs, album: imported.extend(pairs) or len(pairs))
+    code = main(["--out", str(tmp_path / "batch"), "--count", "2", "--renderer", fake_renderer(tmp_path),
+                 "--scout-cache", str(tmp_path / "cache"), "--game-data", str(fake_game_data(tmp_path, "good"))])
+    assert code == 0 and len(imported) == 2
+    assert sorted(p.name for p in (tmp_path / "batch").iterdir()) == ["views.txt"]

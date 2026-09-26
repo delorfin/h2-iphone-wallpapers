@@ -3,6 +3,7 @@
 import argparse
 import os
 import random
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -71,6 +72,9 @@ def render_good_views(args: argparse.Namespace, frames: Path) -> None:
     width, height = view_size(args.scale)
     maps = scout_maps(args.renderer, args.game_data, args.scout_cache)
     views = select_views(maps, args.count, *window_tiles(width, height), random.Random())
+    # Kept after the batch as the record of which map views it holds.
+    args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / "views.txt").write_text("".join(f"{v.x} {v.y} {v.map}\n" for v in views))
     render_views(args.renderer, views, frames, width, height, POSES, args.game_data)
 
 
@@ -97,11 +101,16 @@ def main(argv: list[str] | None = None) -> int:
         pairs.append(make_live_photo(clip, live, f"H2_{view.name}", FIRST_CAPTURE + timedelta(minutes=i)))
         print(f"{i + 1}/{args.count} pan {direction} {(view / 'map.txt').read_text().strip()} at {(view / 'view.txt').read_text().strip()}")
 
+    # The rendered stages are only needed to build the Live Photos; a failure above keeps them for diagnosis.
+    shutil.rmtree(frames)
+    shutil.rmtree(clips)
     if args.no_import:
         print(f"Built {len(pairs)} Live Photos in {live}")
         return 0
 
     import_pairs(pairs, args.album)
+    # Photos keeps its own copy of every imported file.
+    shutil.rmtree(live)
     print(f"Imported {len(pairs)} Live Photos into the Photos album {args.album!r}.")
     print("Next: select the iPhone in Finder's sidebar to sync the album (it must be ticked under Photos → Selected albums).")
     return 0

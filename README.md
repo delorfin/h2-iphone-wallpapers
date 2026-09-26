@@ -28,6 +28,8 @@ uv run h2live batch --out ~/Pictures/h2lwp-batches/$(date +%F) --count 365 --alb
 
 This scouts every map (first run only, cached per renderer build in `~/Library/Caches/h2live`), picks views that pass the selection rules, renders them, builds Live Photos and imports them into the Photos album. Options: `--scale` (2-4, default 3), `--brightness` (default 70), `--no-import`. A batch of 365 takes a while; each wallpaper is about 3.5 MB.
 
+After a successful import the output folder keeps only `views.txt` (which map views the batch holds): Photos stores its own copy of every file, in `~/Pictures/Photos Library.photoslibrary`. With `--no-import` the finished Live Photos stay in `live/`. If a step fails, all intermediate stages stay for diagnosis. Keep the album in Photos: Finder sync mirrors it, so removing photos there removes them from the phone at the next sync.
+
 ## Get them onto the iPhone
 
 Finder photo sync, one-time setup:
