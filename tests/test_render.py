@@ -5,14 +5,15 @@ from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parents[1]
-RENDERER = REPO / "engine" / "fheroes2"
-# Non-bundle macOS builds only look in ~/.fheroes2 unless told otherwise.
-GAME_DATA = Path.home() / "Library/Application Support/fheroes2"
+from real_engine import GAME_DATA, RENDERER, game_maps, needs_engine
+
 # HoMM2 animates water by rotating these palette entries rather than swapping sprites.
 WATER = range(231, 236)
 
-pytestmark = pytest.mark.skipif(not RENDERER.exists(), reason="build the renderer first: ./build.sh")
+pytestmark = needs_engine
+# The Android app's mode, which h2live doesn't use: views of random maps from the game data (not the
+# bundled ones), never the same map twice in a row, so the demo's single map isn't enough.
+needs_maps = pytest.mark.skipif(len(game_maps()) < 2, reason="needs several maps in the game data")
 
 
 def bmp_size(path: Path) -> tuple[int, int]:
@@ -34,6 +35,7 @@ def render(out: Path, count: int, width: int, height: int, frames: int = 8) -> s
     )
 
 
+@needs_maps
 def test_renders_count_views_of_frames_each(tmp_path):
     result = render(tmp_path, 2, 420, 700)
     assert result.returncode == 0, result.stderr
@@ -47,6 +49,7 @@ def test_renders_count_views_of_frames_each(tmp_path):
         assert (view / "map.txt").read_text().strip()
 
 
+@needs_maps
 def test_water_shimmers_between_frames(tmp_path):
     assert render(tmp_path, 4, 420, 700, frames=2).returncode == 0
     shimmering = []
@@ -59,6 +62,7 @@ def test_water_shimmers_between_frames(tmp_path):
     assert min(shimmering) > 0.5
 
 
+@needs_maps
 def test_two_runs_pick_different_maps(tmp_path):
     maps = []
     for run in ("a", "b"):
@@ -67,6 +71,7 @@ def test_two_runs_pick_different_maps(tmp_path):
     assert maps[0] != maps[1]
 
 
+@needs_maps
 def test_views_larger_than_small_maps_still_render(tmp_path):
     # 1600 px is 50 tiles: wider than 36x36 and 72x72 maps, so the renderer must pick bigger ones.
     result = render(tmp_path, 2, 1600, 1600, frames=1)

@@ -8,14 +8,13 @@ from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parents[1]
-RENDERER = REPO / "engine" / "fheroes2"
-GAME_DATA = Path.home() / "Library/Application Support/fheroes2"
-MAP = GAME_DATA / "maps" / "Abyss.MP2"
+from real_engine import BUNDLED_MAPS, GAME_DATA, RENDERER, game_maps, needs_engine
+
+# A 72x72 map with water, trees and animated objects, bundled so the tests need no downloaded maps.
+MAP = BUNDLED_MAPS / "Lost_Temple.fh2m"
 TILE = 32
 
-pytestmark = pytest.mark.skipif(not RENDERER.exists() or not MAP.exists(),
-                                reason="build the renderer first: ./build.sh")
+pytestmark = needs_engine
 
 
 def run(*args: str) -> subprocess.CompletedProcess:
@@ -130,8 +129,8 @@ def test_render_wallpapers_still_works(tmp_path):
     assert (tmp_path / "000" / "f00.bmp").exists()
 
 
-# Has random-race castles and random artifacts/resources, which the tests above' map lacks.
-RANDOM_MAP = GAME_DATA / "maps" / "BELTWAY.MP2"
+# Another map whose objects depend on the random seed, as every bundled one does.
+RANDOM_MAP = BUNDLED_MAPS / "Ravenhold.fh2m"
 
 
 def scout_one(out: Path, map_file: Path) -> dict:
@@ -158,24 +157,20 @@ def test_rendered_view_does_not_depend_on_other_views_in_the_batch(tmp_path):
     from h2live.batch import render_views
     from h2live.select import View
     view = View(map=str(RANDOM_MAP), x=25, y=10)
-    render_views(RENDERER, [view], tmp_path / "alone", 420, 700, 1)
-    render_views(RENDERER, [View(map=str(MAP), x=3, y=3), View(map=str(MAP), x=5, y=7), view], tmp_path / "together", 420, 700, 1)
+    render_views(RENDERER, [view], tmp_path / "alone", 420, 700, 1, GAME_DATA)
+    render_views(RENDERER, [View(map=str(MAP), x=3, y=3), View(map=str(MAP), x=5, y=7), view], tmp_path / "together", 420, 700, 1, GAME_DATA)
     assert (tmp_path / "alone/000/f00.bmp").read_bytes() == (tmp_path / "together/002/f00.bmp").read_bytes()
 
 
-# fheroes2's own map format, bundled in engine/maps.
-FH2M_MAP = REPO / "engine" / "maps" / "Lost_Temple.fh2m"
-
-
-def test_scouts_fh2m_maps(tmp_path):
-    scouted = scout_one(tmp_path, FH2M_MAP)
-    assert scouted["width"] > 0 and len(scouted["tiles"]) == scouted["width"] * scouted["height"]
-    assert any(tile["occupied"] for tile in scouted["tiles"])
-
-
-def test_renders_views_of_fh2m_maps(tmp_path):
+def test_scouts_and_renders_the_games_own_maps(tmp_path):
+    # The tests above use fheroes2's .fh2m format; the game's maps are .mp2 and .mx2.
+    if not game_maps():
+        pytest.skip("needs maps in the game data")
+    game_map = game_maps()[0]
+    scouted = scout_one(tmp_path, game_map)
+    assert len(scouted["tiles"]) == scouted["width"] * scouted["height"]
     spec = tmp_path / "views.txt"
-    spec.write_text(f"0 0 {FH2M_MAP}\n")
+    spec.write_text(f"0 0 {game_map}\n")
     result = run("--render-views", str(spec), str(tmp_path / "out"), "420", "700", "1")
     assert result.returncode == 0, result.stderr
     assert bmp_rows(tmp_path / "out/000/f00.bmp")[:2] == (420, 700)

@@ -84,7 +84,7 @@ On iOS 18, Set Wallpaper Photo fails on about every other run ("NSXPC connection
 
 ## Selection rules
 
-A view is used only if it passes every rule (`h2live/select.py`); the thresholds were calibrated against the user's verdicts on contact sheets, pinned in `tests/test_sheet_verdicts.py`. Objects include trees, mountains and ground decorations; borders between terrains count as content, roads and rivers don't.
+A view is used only if it passes every rule (`h2live/select.py`); the thresholds were calibrated against the author's verdicts on contact sheets, pinned in `tests/test_sheet_verdicts.py`. Objects include trees, mountains and ground decorations; borders between terrains count as content, roads and rivers don't.
 
 | Rule | Fails when |
 |---|---|
@@ -106,7 +106,7 @@ To recalibrate: `uv run python -m h2live.calibrate <out-dir>` renders a contact 
 uv run pytest
 ```
 
-Engine tests skip unless `./fheroes2` is built.
+Engine tests skip unless `./fheroes2` is built and game data is found; with only the demo, a few tests of the unused random-map mode skip too. The calibration tests in `tests/test_sheet_verdicts.py` need the author's fan-made maps and skip without them.
 
 ## License
 
