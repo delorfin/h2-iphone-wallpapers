@@ -7,9 +7,7 @@ Writes <out dir>/contact-sheet.png, <out dir>/candidates.json and full-size stil
 
 import argparse
 import json
-import os
 import random
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -17,11 +15,11 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from h2live.batch import RENDERER, scout_cache
-from h2live.gamedata import FHEROES2_DATA as GAME_DATA
+from h2live.batch import RENDERER, render_views, scout_cache
 from h2live.clip import view_size
-from h2live.select import (FREQUENT_COPIES, MAX_DUPLICATE_TILES, MIN_ANIMATED_TERRAIN, RULES, TILE, View, Window, bmp_pixels, check,
-                           duplicate_tile_share, empty_square, passing_windows, regular_patterns, scout_maps, window_tiles)
+from h2live.gamedata import NoGameData, find_game_data
+from h2live.select import (FREQUENT_COPIES, MIN_ANIMATED_TERRAIN, RULES, TILE, View, Window, check, empty_square, passing_windows,
+                           regular_patterns, scout_maps, window_tiles)
 
 # Per rule, the value it judges and the (low, high) band counted as near its threshold: passing, failing.
 NEAR = {
@@ -115,14 +113,6 @@ def find_candidates(maps, w: int, h: int, per_side: int, rng: random.Random) -> 
     return [c for key in wanted for c in found[key]]
 
 
-def render_stills(renderer: Path, views: list[View], width: int, height: int, out: Path) -> list[Path]:
-    views_file = out / "views.txt"
-    views_file.write_text("".join(f"{v.x} {v.y} {v.map}\n" for v in views))
-    subprocess.run([str(renderer), "--render-views", str(views_file), str(out / "stills"), str(width), str(height), "1"],
-                   check=True, capture_output=True, env={**os.environ, "FHEROES2_DATA": str(GAME_DATA)})
-    return [out / "stills" / f"{i:03d}" / "f00.bmp" for i in range(len(views))]
-
-
 def bmp_image(path: Path) -> Image.Image:
     return Image.open(path).convert("RGB")
 
@@ -176,7 +166,7 @@ def contact_sheet(items: list[dict], out: Path, columns: int = 8) -> None:
         colour = (0, 120, 0) if item["verdict"] == "PASS" else (190, 0, 0)
         draw.text((left, top), f"{item['id']:02d} {item['verdict']} {item['rule']}", fill=colour, font=big)
         draw.text((left, top + 26), item["label"], fill="black", font=small)
-        draw.text((left, top + 44), f"{Path(item['map']).name[:18]} @ {item['x']},{item['y']}  dup tiles {item['duplicate_tiles']:.0%}",
+        draw.text((left, top + 44), f"{Path(item['map']).name[:18]} @ {item['x']},{item['y']}",
                   fill=(90, 90, 90), font=small)
     sheet.save(out)
 
@@ -187,46 +177,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--per-side", type=int, default=3)
     parser.add_argument("--renderer", type=Path, default=RENDERER)
     parser.add_argument("--scout-cache", type=Path, default=scout_cache())
+    parser.add_argument("--game-data", type=Path, help="as for h2live batch")
     parser.add_argument("--seed", type=int, default=1)
     args = parser.parse_args(argv)
 
+    try:
+        game_data = find_game_data(args.game_data)
+    except NoGameData as error:
+        print(error, file=sys.stderr)
+        return 1
     rng = random.Random(args.seed)
     width, height = view_size(3)
     w, h = window_tiles(width, height)
-    maps = scout_maps(args.renderer, GAME_DATA, args.scout_cache)
+    maps = scout_maps(args.renderer, game_data, args.scout_cache)
+    by_map = {m.path: m for m in maps}
     candidates = find_candidates(maps, w, h, args.per_side, rng)
-
-    # The still check: render views that pass every map rule and keep those near its threshold.
-    pool = []
-    for m in rng.sample(maps, len(maps)):
-        ys, xs = np.nonzero(passing_windows(m, w, h)["all"])
-        if len(xs):
-            i = rng.randrange(len(xs))
-            pool.append(View(m.path, int(xs[i]), int(ys[i])))
-        if len(pool) == 300:
-            break
 
     (args.out / "stills").mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as scratch:
-        scratch = Path(scratch)
-        (scratch / "pool").mkdir()
-        shares = [duplicate_tile_share(bmp_pixels(p)) for p in render_stills(args.renderer, pool, width, height, scratch / "pool")]
-        by_map = {m.path: m for m in maps}
-        near_pass = [(v, s) for v, s in zip(pool, shares) if MAX_DUPLICATE_TILES - 0.07 < s <= MAX_DUPLICATE_TILES]
-        near_fail = [(v, s) for v, s in zip(pool, shares) if MAX_DUPLICATE_TILES < s <= MAX_DUPLICATE_TILES + 0.1]
-        for group, verdict in ((near_pass, "PASS"), (near_fail, "FAIL")):
-            for view, share in group[:args.per_side - 1]:
-                values = check(by_map[view.map], Window(view.x, view.y, w, h)).values
-                candidates.append({"map": view.map, "x": view.x, "y": view.y, "rule": "repeated tiles", "verdict": verdict,
-                                   "label": f"duplicate 32px tiles={share:.0%} (still check)", "values": values})
-
         views = [View(c["map"], c["x"], c["y"]) for c in candidates]
-        (scratch / "sheet").mkdir()
-        stills = render_stills(args.renderer, views, width, height, scratch / "sheet")
-        for n, (candidate, still) in enumerate(zip(candidates, stills), start=1):
+        render_views(args.renderer, views, Path(scratch), width, height, 1, game_data)
+        for n, candidate in enumerate(candidates, start=1):
             candidate["id"] = n
-            candidate["duplicate_tiles"] = round(duplicate_tile_share(bmp_pixels(still)), 3)
-            candidate["image"] = bmp_image(still)
+            candidate["image"] = bmp_image(Path(scratch) / f"{n - 1:03d}" / "f00.bmp")
             candidate["image"].save(args.out / "stills" / f"{n:02d}.png")
             win = Window(candidate["x"], candidate["y"], w, h)
             candidate["outlines"] = outlines(by_map[candidate["map"]], win, candidate["rule"])
@@ -236,9 +209,6 @@ def main(argv: list[str] | None = None) -> int:
         del candidate["image"]
         candidate["outlines"] = [list(box) for box in candidate["outlines"]]
     (args.out / "candidates.json").write_text(json.dumps(candidates, indent=1))
-    pool_stats = {"rendered": len(shares), "median duplicate share": float(np.median(shares)),
-                  "over threshold": float(np.mean(np.array(shares) > MAX_DUPLICATE_TILES))}
-    print(json.dumps(pool_stats))
     print(f"{len(candidates)} candidates in {args.out / 'contact-sheet.png'}")
     return 0
 

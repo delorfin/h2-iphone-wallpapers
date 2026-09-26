@@ -26,10 +26,9 @@ TILE = 32
 # The rules. Each is a hard limit; a window that misses any one is never used.
 # A tile is blank when it has no object and its terrain matches all 8 neighbours; tiles along a
 # border between terrains are not blank. Roads and rivers don't fill space (sheet 2-02, 2-38).
-# The lock screen clock covers about 7 tile rows at the top of the window (pan margin plus a quarter
-# of the view). Leaving them out of the empty-space rules fitted the user's verdicts worse: they still
-# called empty space up there "emptyish" (sheet 2-33), so the rules look at the whole window.
-CLOCK_ROWS = 0
+# The lock screen clock covers about 7 tile rows at the top of the window, but the rules still look at
+# the whole window: empty space under the clock read as "emptyish" too (sheet 2-33).
+# "Sheet" tags refer to the author's calibration verdicts, pinned in tests/test_sheet_verdicts.py.
 MAX_EMPTY_SQUARE = 5  # tiles; a blank 6x6 square reads as empty space
 # Share of the view in blank 2x2 patches: views whose objects bunch up between blank gaps fail.
 BLANK_PATCH = 2
@@ -42,8 +41,6 @@ MAX_TYPE_SHARE = 0.65  # of the occupied tiles, for the most common MP2 object t
 MIN_TYPES = 3
 MIN_ANIMATED_OBJECTS = 2
 MIN_ANIMATED_TERRAIN = 4  # tiles of water or lava, which shimmer through palette cycling
-# Share of 32x32 tiles in a rendered still that exactly duplicate another; the median view has 25%.
-MAX_DUPLICATE_TILES = 0.4
 
 RULES = ("empty", "clumped", "sparse", "repetition", "frequency", "monoculture", "few types", "no animation")
 
@@ -114,7 +111,7 @@ class ScoutedMap:
     # Identical objects in a regular arrangement: (n, 3) touching rows at equal steps, (n, 4) 2x2 blocks.
     lines: np.ndarray = field(default=None)
     blocks: np.ndarray = field(default=None)
-    # Tiles that lie in some blank 3x3 patch.
+    # Tiles that lie in some blank 2x2 patch.
     in_blank_patch: np.ndarray = field(default=None)
 
     def __post_init__(self):
@@ -254,11 +251,6 @@ def largest_empty_square(m: ScoutedMap, win: Window) -> int:
     return empty_square(m, win)[0]
 
 
-def clear_area(win: Window) -> Window:
-    """The part of a window that the lock screen clock doesn't cover."""
-    return Window(win.x, win.y + CLOCK_ROWS, win.w, win.h - CLOCK_ROWS)
-
-
 def _areas(m: ScoutedMap) -> np.ndarray:
     return (m.x1.astype(np.int32) - m.x0 + 1) * (m.y1.astype(np.int32) - m.y0 + 1)
 
@@ -312,15 +304,14 @@ def bonus(m: ScoutedMap, win: Window) -> int:
 def check(m: ScoutedMap, win: Window) -> Verdict:
     if not win.inside(m):
         return Verdict({"inside": False}, ["off map"])
-    clear = clear_area(win)
     share, types = type_mix(m, win)
     animated_objects, animated_terrain = animation(m, win)
     copies, sprite_share = top_sprite(m, win)
     values = {
         "inside": True,
-        "empty": largest_empty_square(m, clear),
-        "blank patches": blank_patch_share(m, clear),
-        "occupied": occupied_share(m, clear),
+        "empty": largest_empty_square(m, win),
+        "blank patches": blank_patch_share(m, win),
+        "occupied": occupied_share(m, win),
         "repetition": len(regular_patterns(m, win)),
         "top sprite copies": copies,
         "top sprite share": sprite_share,
@@ -388,21 +379,18 @@ def passing_windows(m: ScoutedMap, w: int, h: int) -> dict[str, np.ndarray]:
         return {rule: np.zeros(shape, bool) for rule in (*RULES, "all")}
 
     grids = {}
-    # The empty-space rules look at the clear area: rows CLOCK_ROWS.. of each window.
-    ch = h - CLOCK_ROWS
-
-    def clear_sums(grid: np.ndarray, box_w: int, box_h: int) -> np.ndarray:
-        return _box_sums(grid, box_w, box_h)[CLOCK_ROWS:CLOCK_ROWS + shape[0], :shape[1]]
+    def window_sums(grid: np.ndarray, box_w: int, box_h: int) -> np.ndarray:
+        return _box_sums(grid, box_w, box_h)[:shape[0], :shape[1]]
 
     side = MAX_EMPTY_SQUARE + 1
-    if w >= side and ch >= side:
+    if w >= side and h >= side:
         empty_blocks = _box_sums(m.blank, side, side) == side * side
-        grids["empty"] = clear_sums(empty_blocks, w - side + 1, ch - side + 1) == 0
+        grids["empty"] = window_sums(empty_blocks, w - side + 1, h - side + 1) == 0
     else:
         grids["empty"] = np.ones(shape, bool)
 
-    grids["clumped"] = clear_sums(m.in_blank_patch, w, ch) <= MAX_BLANK_PATCH_SHARE * w * ch + 1e-9
-    grids["sparse"] = clear_sums(m.occupied, w, ch) >= MIN_OCCUPIED_SHARE * w * ch - 1e-9
+    grids["clumped"] = window_sums(m.in_blank_patch, w, h) <= MAX_BLANK_PATCH_SHARE * w * h + 1e-9
+    grids["sparse"] = window_sums(m.occupied, w, h) >= MIN_OCCUPIED_SHARE * w * h - 1e-9
     occupied = _box_sums(m.occupied, w, h)
 
     # A window fails if it meets every object of some row or block.
@@ -487,33 +475,6 @@ def select_views(maps: list[ScoutedMap], count: int, w: int, h: int, rng: Random
         raise NotEnoughViews(f"Found {len(views)} of {count} views that pass every rule; "
                              "ask for fewer or relax a rule in h2live/select.py")
     return views
-
-
-def duplicate_tile_share(pixels: np.ndarray) -> float:
-    """Share of 32x32 tiles of a still that exactly repeat another tile, for the grid alignment with the most."""
-    best = 0.0
-    height, width = pixels.shape
-    for oy in range(min(TILE, height)):
-        for ox in range(min(TILE, width)):
-            rows, cols = (height - oy) // TILE, (width - ox) // TILE
-            if rows * cols < 2:
-                continue
-            tiles = pixels[oy:oy + rows * TILE, ox:ox + cols * TILE].reshape(rows, TILE, cols, TILE).swapaxes(1, 2)
-            flat = np.ascontiguousarray(tiles.reshape(rows * cols, TILE * TILE)).view(f"V{TILE * TILE}").ravel()
-            _, inverse, counts = np.unique(flat, return_inverse=True, return_counts=True)
-            best = max(best, float((counts[inverse] > 1).sum()) / len(flat))
-    return best
-
-
-def bmp_pixels(path: Path) -> np.ndarray:
-    """Palette indices of an 8-bit BMP, top row first."""
-    data = path.read_bytes()
-    offset = int.from_bytes(data[10:14], "little")
-    width = int.from_bytes(data[18:22], "little", signed=True)
-    height = int.from_bytes(data[22:26], "little", signed=True)
-    stride = (width + 3) // 4 * 4
-    rows = np.frombuffer(data, np.uint8, abs(height) * stride, offset).reshape(abs(height), stride)[:, :width]
-    return rows if height < 0 else rows[::-1]
 
 
 # Scouting.

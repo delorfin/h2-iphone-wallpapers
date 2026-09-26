@@ -1,6 +1,5 @@
 import random
 
-import numpy as np
 import pytest
 
 from h2live.select import (
@@ -9,7 +8,6 @@ from h2live.select import (
     Window,
     animation,
     check,
-    duplicate_tile_share,
     blank_patch_share,
     top_sprite,
     empty_square,
@@ -494,24 +492,3 @@ def test_select_stops_when_there_are_not_enough_good_views():
     maps = [good_scout().map("good.mp2"), Scout(14, 22).map("empty.mp2")]
     with pytest.raises(NotEnoughViews, match="1 of 2"):
         select_views(maps, 2, 14, 22, random.Random(0))
-
-
-# Rendered backstop
-
-def test_duplicate_tile_share():
-    rng = np.random.default_rng(0)
-    noise = rng.integers(0, 256, (64, 96), dtype=np.uint8)
-    assert duplicate_tile_share(noise) == 0
-    tile = rng.integers(0, 256, (32, 32), dtype=np.uint8)
-    assert duplicate_tile_share(np.tile(tile, (2, 3))) == 1
-    half = noise.copy()
-    half[:32] = np.tile(tile, (1, 3))
-    assert duplicate_tile_share(half) == 0.5
-
-
-def test_duplicate_tile_share_finds_the_grid():
-    rng = np.random.default_rng(1)
-    tiles = np.tile(rng.integers(0, 256, (32, 32), dtype=np.uint8), (3, 4))
-    shifted = rng.integers(0, 256, (96 + 5, 128 + 9), dtype=np.uint8)
-    shifted[5:, 9:] = tiles
-    assert duplicate_tile_share(shifted) > 0.5
