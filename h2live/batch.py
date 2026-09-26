@@ -16,7 +16,9 @@ from h2live.livephoto import make_live_photo
 from h2live.photos import import_pairs
 from h2live.select import NotEnoughViews, View, scout_maps, select_views, window_tiles
 
-REPO = Path(__file__).resolve().parents[2]
+REPO = Path(__file__).resolve().parents[1]
+# Built by build.sh.
+RENDERER = REPO / "engine" / "fheroes2"
 # Non-bundle macOS builds only look in ~/.fheroes2 unless told otherwise.
 GAME_DATA = Path.home() / "Library/Application Support/fheroes2"
 # Keeps every batch together on one day of the Photos and Google Photos timelines, away from real photos.
@@ -76,7 +78,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--brightness", type=int, default=70)
     parser.add_argument("--album", default=f"H2 {date.today():%Y-%m-%d}")
     parser.add_argument("--no-import", action="store_true", help="build the files but skip Photos")
-    parser.add_argument("--renderer", type=Path, default=REPO / "fheroes2", help="built by ios-livephoto/build.sh")
+    parser.add_argument("--renderer", type=Path, default=RENDERER, help="built by build.sh")
     parser.add_argument("--scout-cache", type=Path, default=scout_cache(), help="where scouted maps are kept between batches")
     parser.add_argument("--game-data", type=Path, default=GAME_DATA, help="fheroes2 data folder with DATA and MAPS")
     parser.add_argument("--history", type=Path, default=history_file(), help="views used by earlier batches")

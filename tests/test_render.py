@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parents[2]
-RENDERER = REPO / "fheroes2"
+REPO = Path(__file__).resolve().parents[1]
+RENDERER = REPO / "engine" / "fheroes2"
 # Non-bundle macOS builds only look in ~/.fheroes2 unless told otherwise.
 GAME_DATA = Path.home() / "Library/Application Support/fheroes2"
 # HoMM2 animates water by rotating these palette entries rather than swapping sprites.
 WATER = range(231, 236)
 
-pytestmark = pytest.mark.skipif(not RENDERER.exists(), reason="build the renderer first: ios-livephoto/build.sh")
+pytestmark = pytest.mark.skipif(not RENDERER.exists(), reason="build the renderer first: ./build.sh")
 
 
 def bmp_size(path: Path) -> tuple[int, int]:

@@ -14,7 +14,7 @@ What you get: every morning a new wallpaper on the lock and home screen. On wake
 ## Build
 
 ```sh
-ios-livephoto/build.sh
+./build.sh
 ```
 
 Use the script, not plain `make`: it builds a release engine (developer assertions abort on some shipped maps) and replaces `./fheroes2` with a fresh file (macOS kills a binary that `make` overwrote in place).
@@ -22,7 +22,6 @@ Use the script, not plain `make`: it builds a release engine (developer assertio
 ## Make wallpapers
 
 ```sh
-cd ios-livephoto
 uv run h2live batch --count 365 --album "H2"
 ```
 
@@ -87,7 +86,7 @@ To recalibrate: `uv run python -m h2live.calibrate <out-dir>` renders a contact 
 ## Tests
 
 ```sh
-cd ios-livephoto && uv run pytest
+uv run pytest
 ```
 
 Engine tests skip unless `./fheroes2` is built.

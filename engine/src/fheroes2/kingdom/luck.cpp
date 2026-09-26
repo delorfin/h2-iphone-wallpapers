@@ -1,0 +1,84 @@
+/***************************************************************************
+ *   fheroes2: https://github.com/ihhub/fheroes2                           *
+ *   Copyright (C) 2019 - 2026                                             *
+ *                                                                         *
+ *   Free Heroes2 Engine: http://sourceforge.net/projects/fheroes2         *
+ *   Copyright (C) 2009 by Andrey Afletdinov <fheroes2@gmail.com>          *
+ *                                                                         *
+ *   This program is free software; you can redistribute it and/or modify  *
+ *   it under the terms of the GNU General Public License as published by  *
+ *   the Free Software Foundation; either version 2 of the License, or     *
+ *   (at your option) any later version.                                   *
+ *                                                                         *
+ *   This program is distributed in the hope that it will be useful,       *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU General Public License for more details.                          *
+ *                                                                         *
+ *   You should have received a copy of the GNU General Public License     *
+ *   along with this program; if not, write to the                         *
+ *   Free Software Foundation, Inc.,                                       *
+ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+ ***************************************************************************/
+
+#include "luck.h"
+
+#include <algorithm>
+
+#include "tools.h"
+#include "translations.h"
+
+std::string Luck::String( int luck )
+{
+    switch ( luck ) {
+    case Luck::CURSED:
+        return _( "luck|Cursed" );
+    case Luck::AWFUL:
+        return _( "luck|Awful" );
+    case Luck::BAD:
+        return _( "luck|Bad" );
+    case Luck::NORMAL:
+        return _( "luck|Normal" );
+    case Luck::GOOD:
+        return _( "luck|Good" );
+    case Luck::GREAT:
+        return _( "luck|Great" );
+    case Luck::IRISH:
+        return _( "luck|Irish" );
+    default:
+        break;
+    }
+
+    return "Unknown";
+}
+
+std::string Luck::Description( int luck )
+{
+    std::string msg;
+
+    switch ( luck ) {
+    case Luck::CURSED:
+    case Luck::AWFUL:
+    case Luck::BAD:
+        msg = _( "%{luck-type} luck sometimes falls on the hero's units in combat, causing their attacks to only do half damage." );
+        break;
+    case Luck::NORMAL:
+        msg = _( "%{luck-type} luck means the hero's units will never get lucky or unlucky attacks on the enemy." );
+        break;
+    case Luck::GOOD:
+    case Luck::GREAT:
+    case Luck::IRISH:
+        msg = _( "%{luck-type} luck sometimes lets the hero's units get lucky attacks (double strength) in combat." );
+        break;
+    default:
+        return "Unknown";
+    }
+
+    StringReplace( msg, "%{luck-type}", Luck::String( luck ) );
+    return msg;
+}
+
+int Luck::Normalize( const int luck )
+{
+    return std::clamp( luck, static_cast<int>( Luck::CURSED ), static_cast<int>( Luck::IRISH ) );
+}

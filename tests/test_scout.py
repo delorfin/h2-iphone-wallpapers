@@ -8,14 +8,14 @@ from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parents[2]
-RENDERER = REPO / "fheroes2"
+REPO = Path(__file__).resolve().parents[1]
+RENDERER = REPO / "engine" / "fheroes2"
 GAME_DATA = Path.home() / "Library/Application Support/fheroes2"
 MAP = GAME_DATA / "maps" / "Abyss.MP2"
 TILE = 32
 
 pytestmark = pytest.mark.skipif(not RENDERER.exists() or not MAP.exists(),
-                                reason="build the renderer first: ios-livephoto/build.sh")
+                                reason="build the renderer first: ./build.sh")
 
 
 def run(*args: str) -> subprocess.CompletedProcess:

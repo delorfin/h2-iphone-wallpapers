@@ -14,14 +14,14 @@ import pytest
 
 from h2live.select import Window, check, load_map
 
-REPO = Path(__file__).resolve().parents[2]
-RENDERER = REPO / "fheroes2"
+REPO = Path(__file__).resolve().parents[1]
+RENDERER = REPO / "engine" / "fheroes2"
 GAME_DATA = Path.home() / "Library/Application Support/fheroes2"
 MAPS = GAME_DATA / "maps"
 NAMES = ['04Chateau du Dragon.mp2', '06Ponts.mp2', '10Rand.mp2', 'Avatar.mp2', 'Beautifu.MX2', 'BloodBul.MX2', 'Citydrag.mx2', 'ContinentPerdu.mp2', 'Cousins.MX2', 'DIXIE01.MP2', 'DRAGONIS.MP2', 'Dark One.mp2', 'Element.MP2', 'Empires.mp2', 'Enia.mp2', 'GHOSTPLT.MX2', 'ISLEWOND.MP2', 'Jasonsla.mp2', 'JudgeDoo.MX2', 'KNIGHTS40.MX2', 'LittlePe.MX2', 'M-earth.mx2', 'MAP_0075.MP2', 'Map_0127.MP2', 'Midnight.MX2', 'MikaCon.MP2', 'Necroman.MX2', 'Notredyy.mp2', 'OLDKI_00.MP2', 'Pat13.mx2', 'Pax1.mp2', 'PilgrimP.MX2', 'Plains.MX2', 'RIDDLAND.MP2', 'SANDTIME.MX2', 'SONOFASA.MX2', 'Six Sins.mp2', 'Soul Mirror.mp2', 'StarfireMP.mx2', 'THETREAC.MP2', 'The Maze.MP2', 'TheDande.mp2', 'TheKeepe.mp2', 'TheSwamp.mp2', 'Treasure.mp2', 'WOTR!.MX2', 'bigwar.mp2', 'bugfest.mp2', 'deathwh2.mp2', 'feuglace.MP2', 'lom.mx2', 'marionb.mp2', 'mobydick.mx2', 'northame.mp2', 'scandina.mp2', 'thearena.mp2']
 
 pytestmark = pytest.mark.skipif(not RENDERER.exists() or not MAPS.exists(),
-                                reason="build the renderer first: ios-livephoto/build.sh")
+                                reason="build the renderer first: ./build.sh")
 
 
 @pytest.fixture(scope="module")

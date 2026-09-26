@@ -1,0 +1,78 @@
+/***************************************************************************
+ *   fheroes2: https://github.com/ihhub/fheroes2                           *
+ *   Copyright (C) 2023 - 2025                                             *
+ *                                                                         *
+ *   This program is free software; you can redistribute it and/or modify  *
+ *   it under the terms of the GNU General Public License as published by  *
+ *   the Free Software Foundation; either version 2 of the License, or     *
+ *   (at your option) any later version.                                   *
+ *                                                                         *
+ *   This program is distributed in the hope that it will be useful,       *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU General Public License for more details.                          *
+ *                                                                         *
+ *   You should have received a copy of the GNU General Public License     *
+ *   along with this program; if not, write to the                         *
+ *   Free Software Foundation, Inc.,                                       *
+ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+ ***************************************************************************/
+
+#include "render_processor.h"
+
+#include <cstdint>
+
+#include "pal.h"
+
+namespace fheroes2
+{
+    RenderProcessor & RenderProcessor::instance()
+    {
+        static RenderProcessor processor;
+        return processor;
+    }
+
+    bool RenderProcessor::preRenderAction( std::vector<uint8_t> & palette )
+    {
+        // We consider the start of rendering to be the moment when we reset the timer for the next frame.
+        // This is because we have no control over how long the entire rendering process will take,
+        // but the start of rendering is always a consistent point in time.
+        _lastRenderCall.reset();
+
+        if ( !_enableCycling ) {
+            return false;
+        }
+
+        if ( _enableRenderers && _preRenderer ) {
+            _preRenderer();
+        }
+
+        const uint64_t cyclingTime = _previousCyclingInterval + _cyclingTimer.getMs();
+        if ( cyclingTime < ( _cyclingInterval * 2 - _frameHalfInterval ) ) {
+            // If the current timer is less than cycling internal minus half of the frame generation then nothing is needed.
+            return false;
+        }
+
+        _previousCyclingInterval = cyclingTime - _cyclingInterval;
+
+        if ( _previousCyclingInterval > _cyclingInterval + _frameHalfInterval * 2 ) {
+            // The cycling delay was more than assumed frame synchronization interval.
+            // It can be because of some small engine hang after doing some massive computations.
+            // So let's reset the synchronization then.
+            _previousCyclingInterval = _cyclingInterval;
+        }
+
+        // TODO: here we need to deduct possible time difference from the current time to have consistent FPS.
+        _cyclingTimer.reset();
+        palette = PAL::GetCyclingPalette( _cyclingCounter );
+        ++_cyclingCounter;
+        return true;
+    }
+
+    void RenderProcessor::postRenderAction() const
+    {
+        if ( _enableCycling && _enableRenderers && _postRenderer ) {
+            _postRenderer();
+        }
+    }
+}

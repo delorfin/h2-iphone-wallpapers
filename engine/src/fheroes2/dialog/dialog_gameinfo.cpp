@@ -1,0 +1,243 @@
+/***************************************************************************
+ *   fheroes2: https://github.com/ihhub/fheroes2                           *
+ *   Copyright (C) 2019 - 2026                                             *
+ *                                                                         *
+ *   Free Heroes2 Engine: http://sourceforge.net/projects/fheroes2         *
+ *   Copyright (C) 2009 by Andrey Afletdinov <fheroes2@gmail.com>          *
+ *                                                                         *
+ *   This program is free software; you can redistribute it and/or modify  *
+ *   it under the terms of the GNU General Public License as published by  *
+ *   the Free Software Foundation; either version 2 of the License, or     *
+ *   (at your option) any later version.                                   *
+ *                                                                         *
+ *   This program is distributed in the hope that it will be useful,       *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU General Public License for more details.                          *
+ *                                                                         *
+ *   You should have received a copy of the GNU General Public License     *
+ *   along with this program; if not, write to the                         *
+ *   Free Software Foundation, Inc.,                                       *
+ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+ ***************************************************************************/
+
+#include <cassert>
+#include <string>
+#include <vector>
+
+#include "agg_image.h"
+#include "cursor.h"
+#include "dialog.h" // IWYU pragma: associated
+#include "difficulty.h"
+#include "game.h"
+#include "game_hotkeys.h"
+#include "game_over.h"
+#include "icn.h"
+#include "image.h"
+#include "localevent.h"
+#include "maps.h"
+#include "maps_fileinfo.h"
+#include "math_base.h"
+#include "player_info.h"
+#include "screen.h"
+#include "settings.h"
+#include "translations.h"
+#include "ui_button.h"
+#include "ui_dialog.h"
+#include "ui_text.h"
+#include "ui_tool.h"
+
+namespace
+{
+    enum GameInfoCoordinates
+    {
+        SCENARIO_INFO_VALUES_BOX_WIDTH = 80,
+        DIALOG_CONTENT_WIDTH = 420,
+        SCENARIO_INFO_BOX_INNER_MARGIN = 11,
+        SCENARIO_INFO_ROW_OUTER_MARGIN = 16,
+        DESCRIPTION_INNER_MARGIN = 6,
+        SCENARIO_DESCRIPTION_OUTER_MARGIN = 11,
+        // This is the shadow offset from the original ICN::SCENIBKG image.
+        DIALOG_SHADOW_OFFSET_X = 16,
+        DIALOG_SHADOW_OFFSET_Y = 4 + 12, // This ICN has been modified with a 12 px larger shadow.
+        DIALOG_BORDER_WIDTH = 18,
+        // The following values are calculated using the previous values.
+        SCENARIO_INFO_ROW_OFFSET = DIALOG_BORDER_WIDTH + SCENARIO_INFO_ROW_OUTER_MARGIN,
+        SCENARIO_MAP_DIFFICULTY_OFFSET = SCENARIO_INFO_ROW_OFFSET,
+        SCENARIO_GAME_DIFFICULTY_OFFSET = SCENARIO_INFO_ROW_OFFSET + SCENARIO_INFO_VALUES_BOX_WIDTH + SCENARIO_INFO_BOX_INNER_MARGIN,
+        SCENARIO_RATING_OFFSET = SCENARIO_INFO_ROW_OFFSET + SCENARIO_INFO_VALUES_BOX_WIDTH * 2 + SCENARIO_INFO_BOX_INNER_MARGIN * 2,
+        SCENARIO_MAP_SIZE_OFFSET = SCENARIO_INFO_ROW_OFFSET + SCENARIO_INFO_VALUES_BOX_WIDTH * 3 + SCENARIO_INFO_BOX_INNER_MARGIN * 3,
+        SCENARIO_DESCRIPTION_OFFSET = DIALOG_BORDER_WIDTH + SCENARIO_DESCRIPTION_OUTER_MARGIN + DESCRIPTION_INNER_MARGIN,
+        SCENARIO_DESCRIPTION_WIDTH = 350,
+        PLAYER_INFO_ROW_OFFSET = DIALOG_BORDER_WIDTH + 6,
+        CONDITION_LABEL_OFFSET = DIALOG_BORDER_WIDTH,
+        CONDITION_LABEL_WIDTH = 93,
+        CONDITION_DESCRIPTION_OFFSET = CONDITION_LABEL_OFFSET + CONDITION_LABEL_WIDTH + DESCRIPTION_INNER_MARGIN,
+        CONDITION_DESCRIPTION_WIDTH = 266,
+        OK_BUTTON_OFFSET = DIALOG_CONTENT_WIDTH / 2,
+    };
+}
+
+void Dialog::GameInfo()
+{
+    fheroes2::Display & display = fheroes2::Display::instance();
+    Settings & conf = Settings::Get();
+    const Maps::FileInfo & mapInfo = conf.getCurrentMapInfo();
+
+    const auto mapLanguage = mapInfo.getSupportedLanguage();
+
+    // setup cursor
+    const CursorRestorer cursorRestorer( true, Cursor::POINTER );
+
+    const bool isEvilInterface = conf.isEvilInterfaceEnabled();
+    const fheroes2::Sprite & window = fheroes2::AGG::GetICN( isEvilInterface ? ICN::SCENIBKG_EVIL : ICN::SCENIBKG, 0 );
+
+    const fheroes2::Point dialogOffset( ( display.width() - window.width() - DIALOG_SHADOW_OFFSET_X ) / 2, ( display.height() - window.height() ) / 2 );
+    const fheroes2::Point shadowOffset( dialogOffset.x + DIALOG_SHADOW_OFFSET_X, dialogOffset.y + DIALOG_SHADOW_OFFSET_Y / 2 );
+
+    fheroes2::ImageRestorer restorer( display, dialogOffset.x, shadowOffset.y, window.width(), window.height() );
+
+    fheroes2::Blit( window, display, dialogOffset.x, shadowOffset.y );
+
+    const int32_t buttonAboutWidth = fheroes2::AGG::GetICN( ICN::BUTTON_MAP_ABOUT_GOOD, 0 ).width();
+
+    fheroes2::Button buttonAbout( dialogOffset.x + 401 - buttonAboutWidth, dialogOffset.y + 36, isEvilInterface ? ICN::BUTTON_MAP_ABOUT_EVIL : ICN::BUTTON_MAP_ABOUT_GOOD,
+                                  0, 1 );
+
+    const bool isCreatorInfoPresent{ !mapInfo.creatorNotes.empty() };
+    if ( isCreatorInfoPresent ) {
+        // Make sure that this is a Resurrection map.
+        assert( mapInfo.version == GameVersion::RESURRECTION );
+
+        buttonAbout.draw();
+    }
+    else {
+        buttonAbout.hide();
+    }
+
+    const int32_t scenarioNameMaxWidth{ 349 };
+    const fheroes2::Rect scenarioNameRoi{ 37 + shadowOffset.x, 29 + shadowOffset.y, scenarioNameMaxWidth - ( isCreatorInfoPresent ? buttonAboutWidth : 0 ), 19 };
+
+    fheroes2::Text text( mapInfo.name, fheroes2::FontType::normalWhite(), mapLanguage );
+    // We deduct 2 to have at least 1 pixel space between text and text field borders.
+    text.fitToOneRow( scenarioNameRoi.width - 2 );
+    if ( isCreatorInfoPresent ) {
+        // We need to center the map name according to the center of the frame.
+        const int32_t noShiftWidth = scenarioNameMaxWidth - buttonAboutWidth * 2 - 2;
+        if ( text.width() <= noShiftWidth ) {
+            text.draw( scenarioNameRoi.x, shadowOffset.y + 32, scenarioNameMaxWidth, display );
+        }
+        else {
+            // It seems that we need to shift the scenario name to the left.
+            const int32_t offsetX = scenarioNameRoi.width - text.width() - 1;
+            text.draw( scenarioNameRoi.x + offsetX, shadowOffset.y + 32, display );
+        }
+    }
+    else {
+        text.draw( scenarioNameRoi.x, shadowOffset.y + 32, scenarioNameRoi.width, display );
+    }
+
+    text.set( _( "Map\nDifficulty" ), fheroes2::FontType::smallWhite() );
+    text.draw( shadowOffset.x + SCENARIO_MAP_DIFFICULTY_OFFSET, shadowOffset.y + 56, SCENARIO_INFO_VALUES_BOX_WIDTH, display );
+
+    text.set( _( "Game\nDifficulty" ), fheroes2::FontType::smallWhite() );
+    text.draw( shadowOffset.x + SCENARIO_GAME_DIFFICULTY_OFFSET, shadowOffset.y + 56, SCENARIO_INFO_VALUES_BOX_WIDTH, display );
+
+    text.set( _( "Rating" ), fheroes2::FontType::smallWhite() );
+    text.draw( shadowOffset.x + SCENARIO_RATING_OFFSET, shadowOffset.y + 78 - text.height( SCENARIO_INFO_VALUES_BOX_WIDTH ), SCENARIO_INFO_VALUES_BOX_WIDTH, display );
+
+    text.set( _( "Map Size" ), fheroes2::FontType::smallWhite() );
+    text.draw( shadowOffset.x + SCENARIO_MAP_SIZE_OFFSET, shadowOffset.y + 78 - text.height( SCENARIO_INFO_VALUES_BOX_WIDTH ), SCENARIO_INFO_VALUES_BOX_WIDTH, display );
+
+    text.set( Difficulty::String( mapInfo.difficulty ), fheroes2::FontType::smallWhite() );
+    text.draw( shadowOffset.x + SCENARIO_MAP_DIFFICULTY_OFFSET, shadowOffset.y + 84, SCENARIO_INFO_VALUES_BOX_WIDTH, display );
+
+    text.set( Difficulty::String( Game::getDifficulty() ), fheroes2::FontType::smallWhite() );
+    text.draw( shadowOffset.x + SCENARIO_GAME_DIFFICULTY_OFFSET, shadowOffset.y + 84, SCENARIO_INFO_VALUES_BOX_WIDTH, display );
+
+    text.set( std::to_string( Game::GetRating() ) + " %", fheroes2::FontType::smallWhite() );
+    text.draw( shadowOffset.x + SCENARIO_RATING_OFFSET, shadowOffset.y + 84, SCENARIO_INFO_VALUES_BOX_WIDTH, display );
+
+    text.set( Maps::SizeString( mapInfo.width ), fheroes2::FontType::smallWhite() );
+    text.draw( shadowOffset.x + SCENARIO_MAP_SIZE_OFFSET, shadowOffset.y + 84, SCENARIO_INFO_VALUES_BOX_WIDTH, display );
+
+    const fheroes2::Rect scenarioDescripionRoi{ shadowOffset.x + SCENARIO_DESCRIPTION_OFFSET, shadowOffset.y + 107, SCENARIO_DESCRIPTION_WIDTH, 37 };
+
+    text.set( mapInfo.description, fheroes2::FontType::smallWhite(), mapLanguage );
+    text.fitToArea( scenarioDescripionRoi.width, scenarioDescripionRoi.height );
+    text.draw( scenarioDescripionRoi.x, scenarioDescripionRoi.y, scenarioDescripionRoi.width, display );
+
+    text.set( _( "Opponents" ), fheroes2::FontType::smallWhite() );
+    text.draw( shadowOffset.x, shadowOffset.y + 152, DIALOG_CONTENT_WIDTH, display );
+
+    text.set( _( "Class" ), fheroes2::FontType::smallWhite() );
+    text.draw( shadowOffset.x, shadowOffset.y + 229, DIALOG_CONTENT_WIDTH, display );
+
+    Interface::PlayersInfo playersInfo;
+
+    playersInfo.UpdateInfo( conf.GetPlayers(), fheroes2::Point( shadowOffset.x + PLAYER_INFO_ROW_OFFSET, shadowOffset.y + 165 ),
+                            fheroes2::Point( shadowOffset.x + PLAYER_INFO_ROW_OFFSET, shadowOffset.y + 240 ) );
+    playersInfo.RedrawInfo( true );
+
+    text.set( _( "Victory\nConditions" ), fheroes2::FontType::smallWhite() );
+    text.draw( shadowOffset.x + CONDITION_LABEL_OFFSET, shadowOffset.y + 347, CONDITION_LABEL_WIDTH, display );
+
+    std::unique_ptr<fheroes2::TextBase> conditionsText
+        = fheroes2::getLocalizedText( GameOver::GetActualDescription( mapInfo.ConditionWins(), mapLanguage ), fheroes2::FontType::smallWhite() );
+    conditionsText->setUniformVerticalAlignment( false );
+    conditionsText->draw( shadowOffset.x + CONDITION_DESCRIPTION_OFFSET, shadowOffset.y + 350, CONDITION_DESCRIPTION_WIDTH, display );
+
+    text.set( _( "Loss\nConditions" ), fheroes2::FontType::smallWhite() );
+    text.setUniformVerticalAlignment( true );
+    text.draw( shadowOffset.x + CONDITION_LABEL_OFFSET, shadowOffset.y + 392, CONDITION_LABEL_WIDTH, display );
+
+    conditionsText = fheroes2::getLocalizedText( GameOver::GetActualDescription( mapInfo.ConditionLoss(), mapLanguage ), fheroes2::FontType::smallWhite() );
+    conditionsText->setUniformVerticalAlignment( false );
+    conditionsText->draw( shadowOffset.x + CONDITION_DESCRIPTION_OFFSET, shadowOffset.y + 398, CONDITION_DESCRIPTION_WIDTH, display );
+
+    const int buttonOkIcnId = isEvilInterface ? ICN::BUTTON_SMALL_OKAY_EVIL : ICN::BUTTON_SMALL_OKAY_GOOD;
+    fheroes2::Button buttonOk( shadowOffset.x + OK_BUTTON_OFFSET - fheroes2::AGG::GetICN( buttonOkIcnId, 0 ).width() / 2, shadowOffset.y + 426, buttonOkIcnId, 0, 1 );
+
+    buttonOk.draw();
+
+    display.render();
+
+    LocalEvent & le = LocalEvent::Get();
+
+    while ( le.HandleEvents() ) {
+        buttonOk.drawOnState( le.isMouseLeftButtonPressedAndHeldInArea( buttonOk.area() ) );
+
+        if ( isCreatorInfoPresent ) {
+            buttonAbout.drawOnState( le.isMouseLeftButtonPressedAndHeldInArea( buttonAbout.area() ) );
+        }
+
+        if ( le.MouseClickLeft( buttonOk.area() ) || Game::HotKeyCloseWindow() ) {
+            break;
+        }
+
+        if ( isCreatorInfoPresent ) {
+            if ( le.MouseClickLeft( buttonAbout.area() ) ) {
+                fheroes2::showStandardTextMessage( _( "About" ), mapInfo.creatorNotes, Dialog::OK );
+            }
+            else if ( le.isMouseRightButtonPressedInArea( buttonAbout.area() ) ) {
+                fheroes2::showStandardTextMessage( _( "About" ), _( "Click to read notes from the map creator." ), Dialog::ZERO );
+            }
+        }
+
+        if ( le.isMouseRightButtonPressedInArea( scenarioDescripionRoi ) ) {
+            const fheroes2::Text header( _( "Map Description" ), fheroes2::FontType::normalYellow() );
+            const fheroes2::Text body( mapInfo.description, fheroes2::FontType::normalWhite(), mapLanguage );
+            fheroes2::showMessage( header, body, Dialog::ZERO, {} );
+        }
+        else if ( le.isMouseRightButtonPressedInArea( scenarioNameRoi ) ) {
+            text.set( mapInfo.name, fheroes2::FontType::normalYellow(), mapLanguage );
+            fheroes2::showMessage( text, fheroes2::Text{}, Dialog::ZERO );
+        }
+        else if ( le.isMouseRightButtonPressedInArea( buttonOk.area() ) ) {
+            fheroes2::showStandardTextMessage( _( "Okay" ), _( "Exit this menu." ), 0 );
+        }
+        else {
+            playersInfo.readOnlyEventProcessing();
+        }
+    }
+}

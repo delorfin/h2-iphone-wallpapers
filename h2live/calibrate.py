@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from h2live.batch import GAME_DATA, REPO, scout_cache
+from h2live.batch import GAME_DATA, RENDERER, scout_cache
 from h2live.clip import view_size
 from h2live.select import (FREQUENT_COPIES, MAX_DUPLICATE_TILES, MIN_ANIMATED_TERRAIN, RULES, TILE, View, Window, bmp_pixels, check,
                            duplicate_tile_share, empty_square, passing_windows, regular_patterns, scout_maps, window_tiles)
@@ -184,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m h2live.calibrate", description=__doc__)
     parser.add_argument("out", type=Path)
     parser.add_argument("--per-side", type=int, default=3)
-    parser.add_argument("--renderer", type=Path, default=REPO / "fheroes2")
+    parser.add_argument("--renderer", type=Path, default=RENDERER)
     parser.add_argument("--scout-cache", type=Path, default=scout_cache())
     parser.add_argument("--seed", type=int, default=1)
     args = parser.parse_args(argv)
