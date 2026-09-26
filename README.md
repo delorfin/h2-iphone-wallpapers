@@ -70,7 +70,7 @@ With AirDrop or iCloud Photos the wallpapers land in the camera roll, where back
 
 ## Rotate them on the iPhone
 
-The shortcut, "H2 wallpaper": **Find Photos** (Album is H2) → **Get Item from List** (Random Item) → **Set Wallpaper Photo** (Lock Screen and Home Screen; expand the action with › and turn **Show Preview off**, or automations report success and change nothing).
+The shortcut, "H2 wallpaper": **Find Photos** (Album is H2, Sort by Random, Limit 1) → **Set Wallpaper Photo** (Lock Screen and Home Screen; expand the action with › and turn **Show Preview off**, or automations report success and change nothing).
 
 Ways to run it:
 
@@ -79,6 +79,8 @@ Ways to run it:
 - **By hand:** add the shortcut to the Home Screen or as a widget.
 - **Lock screen only:** choose Lock Screen instead of both in Set Wallpaper Photo; only the lock screen plays the motion anyway.
 - **No automation at all:** pick a wallpaper in Settings → Wallpaper → Add New → Photos, with the Live Photo button on.
+
+To see which wallpaper is on (optional): after Set Wallpaper Photo, add **Get Details of Images** (Date Taken, of the Find Photos result) → **Append to Note** (e.g. a note "H2 wallpapers"). Each wallpaper's capture time is its identity: the minutes after 12:00 on 1 January 1996 are its position in `used-views.txt`, counting from 0 and skipping the `#` lines, which gives the map file and the view's top-left tile. The file name won't do: synced photos' names read as UUIDs on the phone.
 
 On iOS 18, Set Wallpaper Photo fails on about every other run ("NSXPC connection type unavailable for com.apple.PhotosUIPrivate.PhotosPosterProvider"). Shortcuts has no retry, so add a second automation a minute after the first.
 

@@ -250,3 +250,18 @@ def test_get_demo_is_a_command(monkeypatch):
     monkeypatch.setattr(batch, "get_demo_command", lambda: calls.append("get-demo") or 0)
     assert main(["get-demo"]) == 0
     assert calls == ["get-demo"]
+
+
+def capture_time(heic: Path) -> str:
+    import subprocess
+    return subprocess.run(["exiftool", "-s3", "-DateTimeOriginal", str(heic)],
+                          capture_output=True, text=True, check=True).stdout.strip()
+
+
+def test_capture_times_continue_across_batches(tmp_path):
+    # The capture time is the wallpaper's only identity a shortcut can read on the phone (synced photos'
+    # names read as UUIDs), so no two batches may share one: minutes after the first capture = line in the history.
+    assert run(tmp_path, 2, "good", "first") == 0
+    assert run(tmp_path, 1, "good", "second") == 0
+    times = [capture_time(p) for p in [*sorted((tmp_path / "first/live").glob("*.HEIC")), *(tmp_path / "second/live").glob("*.HEIC")]]
+    assert times == ["1996:01:01 12:00:00", "1996:01:01 12:01:00", "1996:01:01 12:02:00"]

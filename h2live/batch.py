@@ -20,8 +20,9 @@ from h2live.select import NotEnoughViews, View, scout_maps, select_views, window
 REPO = Path(__file__).resolve().parents[1]
 # Built by build.sh.
 RENDERER = REPO / "engine" / "fheroes2"
-# Keeps every batch together on one day of the Photos and Google Photos timelines, away from real photos.
-# Noon keeps all items on that day in any timezone.
+# Keeps the wallpapers together at the start of the Photos and Google Photos timelines, away from real photos.
+# Each wallpaper is one minute after the previous one, across batches: the capture time is the only identity
+# a shortcut can read on the phone, and minutes after this = the wallpaper's line in the history.
 FIRST_CAPTURE = datetime(1996, 1, 1, 12)
 
 
@@ -46,6 +47,10 @@ def used_views(history: Path, maps: list) -> list[View]:
         if name in paths:
             views.append(View(paths[name], int(x), int(y)))
     return views
+
+
+def views_in(history: Path) -> int:
+    return sum(not line.startswith("#") for line in history.read_text().splitlines()) if history.exists() else 0
 
 
 def remember(history: Path, views: list[View], album: str | None) -> None:
@@ -137,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     frames, clips, live = args.out / "frames", args.out / "clips", args.out / "live"
     # Printed first, so a failed batch's leftovers can be found; they stay for diagnosis.
     print(f"Working in {args.out}")
+    first_capture = FIRST_CAPTURE + timedelta(minutes=views_in(args.history))
     try:
         views = render_good_views(args, frames)
     except (NotEnoughViews, RuntimeError) as error:
@@ -150,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
         clip = clips / f"{view.name}.mov"
         direction = random.choice(DIRECTIONS)
         make_clip(view, clip, args.brightness, args.scale, direction, seed=i)
-        pairs.append(make_live_photo(clip, live, f"H2_{view.name}", FIRST_CAPTURE + timedelta(minutes=i)))
+        pairs.append(make_live_photo(clip, live, f"H2_{view.name}", first_capture + timedelta(minutes=i)))
         print(f"{i + 1}/{args.count} pan {direction} {(view / 'map.txt').read_text().strip()} at {(view / 'view.txt').read_text().strip()}")
 
     # The rendered stages are only needed to build the Live Photos; a failure above keeps them for diagnosis.
